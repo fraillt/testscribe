@@ -1,0 +1,16 @@
+[package]
+name = "testscribe-standalone"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+backtrace = { version = "0.3", features = ["serde"] }
+colored = "3"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+testscribe-core.workspace = true
+thiserror = "2"

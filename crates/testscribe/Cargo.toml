@@ -1,0 +1,25 @@
+[package]
+name = "testscribe"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = ["standalone"]
+standalone = ["testscribe-proc-macros/standalone", "dep:testscribe-standalone"]
+detached = ["dep:testscribe-detached"]
+
+[dependencies]
+linkme = "0.3"
+
+testscribe-core.workspace = true
+testscribe-detached = { workspace = true, optional = true }
+testscribe-proc-macros.workspace = true
+testscribe-standalone = { workspace = true, optional = true }
+
+[dev-dependencies]
+futures = "0.3"
+tokio = { version = "1", features = ["rt", "macros", "time"] }

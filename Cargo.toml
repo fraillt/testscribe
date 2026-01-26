@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+rust-version = "1.91"
+edition = "2024"
+license = "MIT"
+authors = ["Mindaugas Vinkelis <fraillt@gmail.com>"]
+repository = "https://github.com/fraillt/testscribe"
+
+[workspace.dependencies]
+testscribe-core = { path = "crates/core" }
+testscribe-detached = { path = "crates/detached" }
+testscribe-proc-macros = { path = "crates/proc-macros" }
+testscribe-standalone = { path = "crates/standalone" }
