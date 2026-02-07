@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use serde::Serialize;
 
-use crate::test_case::FqFnName;
+use crate::test_case::{FqFnName, TestCase};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ParamInfo {
@@ -10,7 +12,6 @@ pub struct ParamInfo {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TestRunInfo {
-    pub name: FqFnName<'static>,
     pub depth: usize,
     pub run_count: usize,
     pub param_info: Option<ParamInfo>,
@@ -39,6 +40,7 @@ pub enum TestUpdate {
         header: Vec<&'static str>,
     },
     ParamVerified {
+        index: usize,
         row_fields: Vec<String>,
         outcome: VerifyOutcome,
     },
@@ -84,5 +86,5 @@ pub enum TestStatusUpdate {
 }
 
 pub trait Logger {
-    fn log(&mut self, update: TestStatusUpdate);
+    fn log(&mut self, test: &'static TestCase, update: TestStatusUpdate, elapsed: Duration);
 }

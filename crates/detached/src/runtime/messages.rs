@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use testscribe_core::processor::logger::TestStatusUpdate;
-use testscribe_core::test_case::FqFnName;
+use testscribe_core::test_case::{FqFnName, TestCase};
 use testscribe_standalone::panic_hook::PanicDetails;
 
 #[derive(Debug, Deserialize)]
@@ -65,6 +65,7 @@ pub enum StatusMsg {
     },
     TestStatus {
         tree_id: u64,
+        test: &'static TestCase,
         update: TestStatusUpdate,
         elapsed: Duration,
     },

@@ -4,15 +4,16 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use futures::StreamExt;
+use testscribe_standalone::logger::printer::TestFormatter;
+use testscribe_standalone::logger::summary::TestsTreeLogger;
 
 use crate::runtime::interface::{CommandSender, Frontend, StatusReceiver};
 use crate::runtime::messages::{
     CommandMsg, RunTestTree, StatusMsg, TestTreeFilter, TestTreeStatusUpdate,
 };
-use testscribe_core::processor::logger::TestStatusUpdate;
+use testscribe_core::processor::logger::{Logger, TestStatusUpdate};
 use testscribe_core::test_case::FqFnName;
 use testscribe_core::tests_tree::TestsTree;
-use testscribe_standalone::logger::{TestFormatter, TestSummary};
 
 pub struct CliFrontend {
     pub concurrency: usize,
@@ -21,16 +22,16 @@ pub struct CliFrontend {
 impl Frontend for CliFrontend {
     async fn start(
         self,
-        dags: BTreeMap<FqFnName<'static>, TestsTree>,
+        trees: BTreeMap<FqFnName<'static>, TestsTree>,
         command_sender: CommandSender,
         mut status_receiver: StatusReceiver,
     ) -> ExitCode {
         let mut running = HashMap::new();
-        let mut dags_iter = dags.into_iter();
+        let mut trees_iter = trees.into_iter();
         let mut gen_tree_id = 0;
-        for (root_test, tree_info) in dags_iter.by_ref().take(self.concurrency) {
+        for (root_test, _) in trees_iter.by_ref().take(self.concurrency) {
             gen_tree_id += 1;
-            running.insert(gen_tree_id, PrintTestOutcome::new(tree_info));
+            running.insert(gen_tree_id, PrintTestOutcome::new());
             command_sender
                 .unbounded_send(CommandMsg::RunTestTrees {
                     trees: vec![RunTestTree {
@@ -47,11 +48,11 @@ impl Frontend for CliFrontend {
                 StatusMsg::TestTreeStatus { tree_id, update } => match update {
                     TestTreeStatusUpdate::Started => {}
                     TestTreeStatusUpdate::Finished => {
-                        failures_count += running.remove(&tree_id).unwrap().failures_count;
+                        failures_count += running.remove(&tree_id).unwrap().failed_tests;
                         if self.concurrency > running.len() {
-                            if let Some((root_test, tree_info)) = dags_iter.next() {
+                            if let Some((root_test, _)) = trees_iter.next() {
                                 gen_tree_id += 1;
-                                running.insert(gen_tree_id, PrintTestOutcome::new(tree_info));
+                                running.insert(gen_tree_id, PrintTestOutcome::new());
                                 command_sender
                                     .unbounded_send(CommandMsg::RunTestTrees {
                                         trees: vec![RunTestTree {
@@ -75,11 +76,12 @@ impl Frontend for CliFrontend {
                 },
                 StatusMsg::TestStatus {
                     tree_id,
+                    test,
                     update,
                     elapsed,
                 } => {
                     let printer = running.get_mut(&tree_id).unwrap();
-                    printer.log(update, elapsed);
+                    printer.log(test, update, elapsed);
                 }
                 StatusMsg::Panic { details: _ } => todo!(),
                 StatusMsg::InvalidCommandError { message: _ } => todo!(),
@@ -90,32 +92,39 @@ impl Frontend for CliFrontend {
 }
 
 struct PrintTestOutcome {
-    tree: TestsTree,
     events: Vec<(TestStatusUpdate, Duration)>,
-    failures_count: usize,
+    failed_tests: usize,
 }
 
 impl PrintTestOutcome {
-    fn new(tree: TestsTree) -> Self {
+    fn new() -> Self {
         Self {
-            tree,
             events: Vec::new(),
-            failures_count: 0,
+            failed_tests: 0,
         }
     }
+}
 
-    fn log(&mut self, update: TestStatusUpdate, elapsed: Duration) {
+impl Logger for PrintTestOutcome {
+    fn log(
+        &mut self,
+        test: &'static testscribe_core::test_case::TestCase,
+        update: TestStatusUpdate,
+        elapsed: Duration,
+    ) {
         let is_finished = matches!(&update, TestStatusUpdate::Finished { panic_message: _ });
         self.events.push((update, elapsed));
         if is_finished {
             let mut outcome = std::io::stdout().lock();
-            let mut formatter = TestFormatter::new(&self.tree, &mut outcome);
+            let mut printer = TestFormatter::new(&mut outcome);
+            let mut logger = TestsTreeLogger::new(&mut printer);
             for (update, elapsed) in take(&mut self.events) {
-                formatter.replay_event(update, elapsed);
+                logger.log(test, update, elapsed);
             }
-            self.failures_count += formatter.failed_tests.len();
-            let summary = TestSummary::new(formatter.failed_tests, Default::default());
-            summary.print_summary(&mut outcome);
+            let summary = logger.into_summary();
+            self.failed_tests += summary.failed.len();
+            printer.print_failures(&summary.failed);
+            printer.print_panics(&summary.panics);
         }
     }
 }

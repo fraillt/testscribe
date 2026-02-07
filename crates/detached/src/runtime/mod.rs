@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::process::ExitCode;
 use std::thread::spawn;
-use std::time::Instant;
 
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use futures::executor::block_on;
@@ -23,14 +22,14 @@ use crate::runtime::messages::{
 };
 use testscribe_core::processor::logger::TestRunInfo;
 use testscribe_core::processor::{TestsRunner, filter::Filter};
-use testscribe_core::test_case::FqFnName;
+use testscribe_core::test_case::{FqFnName, TestCase};
 use testscribe_core::tests_tree::TestsTree;
 
 impl Filter for TestTreeFilter {
-    fn should_run(&self, test: &TestRunInfo) -> bool {
+    fn should_run(&self, test: &'static TestCase, info: &TestRunInfo) -> bool {
         match &self {
             TestTreeFilter::RunAll => true,
-            TestTreeFilter::RunPaths { paths } => paths[test.depth]
+            TestTreeFilter::RunPaths { paths } => paths[info.depth]
                 .iter()
                 .any(|t| t.as_fq_fn_name() == test.name),
         }
@@ -41,6 +40,7 @@ impl From<(u64, TestStatusUpdateMsg)> for StatusMsg {
     fn from((tree_id, info): (u64, TestStatusUpdateMsg)) -> Self {
         Self::TestStatus {
             tree_id: tree_id,
+            test: info.test,
             update: info.update,
             elapsed: info.elapsed,
         }
@@ -90,16 +90,16 @@ impl DagsRuntime for SyncRuntime {
     }
 }
 
-struct TestTreeRunner {
+struct TestsTreeRunner {
     tree_id: u64,
     tree: TestsTree,
     filter_mode: TestTreeFilter,
     sender: UnboundedSender<StatusMsg>,
 }
 
-impl TestTreeRunner {
+impl TestsTreeRunner {
     async fn run(self) {
-        let mut processor = StatusSender::new(self.tree_id, Instant::now(), self.sender.clone());
+        let mut processor = StatusSender::new(self.tree_id, self.sender.clone());
         self.sender
             .unbounded_send(StatusMsg::TestTreeStatus {
                 tree_id: self.tree_id,
@@ -201,7 +201,7 @@ where
             .filter_map(|info| {
                 self.dags
                     .get(&info.root_test.as_fq_fn_name())
-                    .map(|tree| TestTreeRunner {
+                    .map(|tree| TestsTreeRunner {
                         tree_id: info.id,
                         filter_mode: info.filter,
                         tree: tree.clone(),

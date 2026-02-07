@@ -13,7 +13,6 @@ pub struct TestConfig {
 #[derive(Debug)]
 pub enum Config {
     Params,
-    Environment,
     Test(TestConfig),
 }
 
@@ -21,7 +20,6 @@ impl Parse for Config {
     fn parse(input: ParseStream) -> Result<Self> {
         let list = Punctuated::<Meta, Token![,]>::parse_terminated(input)?;
         let mut is_param_mode = false;
-        let mut is_env_mode = false;
         let mut test_config = TestConfig {
             is_standalone: None,
             is_cloneable: None,
@@ -32,8 +30,6 @@ impl Parse for Config {
                 test_config.is_cloneable = Some(param.path().clone());
             } else if param.path().is_ident("params") {
                 is_param_mode = true;
-            } else if param.path().is_ident("env") {
-                is_env_mode = true;
             } else if param.path().is_ident("standalone") {
                 test_config.is_standalone = Some(param.path().clone());
             } else if param.path().is_ident("tags") {
@@ -85,26 +81,6 @@ impl Parse for Config {
                 ));
             }
             Ok(Config::Params)
-        } else if is_env_mode {
-            if let Some(path) = test_config.is_cloneable {
-                return Err(Error::new(
-                    path.span(),
-                    "`cloneable` cannot be used in `env` mode",
-                ));
-            }
-            if let Some(path) = test_config.is_standalone {
-                return Err(Error::new(
-                    path.span(),
-                    "`standalone` cannot be used in `env` mode",
-                ));
-            }
-            if let Some(path) = test_config.tags.first() {
-                return Err(Error::new(
-                    path.span(),
-                    "`tags` cannot be used in `env` mode",
-                ));
-            }
-            Ok(Config::Environment)
         } else {
             Ok(Config::Test(test_config))
         }

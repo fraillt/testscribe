@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use super::run_state::RunState;
 use crate::processor::filter::Filter;
 use crate::processor::logger::{Logger, ParamInfo, TestRunInfo};
@@ -21,6 +23,8 @@ impl TestsRunner {
             FindBranch,
         }
 
+        let started_at = Instant::now();
+
         let mut action = ProgressAction::ProcessChain;
 
         while !state.is_empty() {
@@ -38,6 +42,8 @@ impl TestsRunner {
                             .run_test(
                                 filter,
                                 logger,
+                                curr.test.node,
+                                started_at,
                                 info,
                                 &curr.test.node.test_fn,
                                 &curr.test.node.env,
@@ -157,7 +163,6 @@ impl<'a> TestState<'a> {
 
         (
             TestRunInfo {
-                name: self.test.node.name,
                 depth,
                 run_count: self.state.run_count,
                 param_info,
@@ -236,6 +241,8 @@ fn should_clone_recursive(childs: &[TestsTreeWithState]) -> bool {
 #[cfg(test)]
 pub mod tests {
 
+    use std::time::Duration;
+
     use futures::executor::block_on;
 
     use super::*;
@@ -295,10 +302,10 @@ pub mod tests {
     }
 
     impl Logger for LogActions {
-        fn log(&mut self, update: TestStatusUpdate) {
+        fn log(&mut self, test: &'static TestCase, update: TestStatusUpdate, _elapsed: Duration) {
             if let TestStatusUpdate::Started { info } = update {
                 self.actions
-                    .push((info.name.name, info.depth, info.run_count));
+                    .push((test.name.name, info.depth, info.run_count));
             }
         }
     }
@@ -331,7 +338,7 @@ pub mod tests {
             TestCaseBuilder::new("xxx2_1").depends_on("xxx2").build(),
             TestCaseBuilder::new("xxx2_2").depends_on("xxx2").build(),
         ];
-        let mut trees = create_test_trees(CASES).unwrap();
+        let mut trees = create_test_trees(CASES);
         for tree in trees.values() {
             tree.verify(false).unwrap();
         }
@@ -378,7 +385,7 @@ pub mod tests {
             TestCaseBuilder::new("xxx2_1").depends_on("xxx2").build(),
             TestCaseBuilder::new("xxx2_2").depends_on("xxx2").build(),
         ];
-        let mut trees = create_test_trees(CASES).unwrap();
+        let mut trees = create_test_trees(CASES);
         for tree in trees.values() {
             tree.verify(false).unwrap();
         }

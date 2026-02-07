@@ -1,7 +1,7 @@
 mod utils;
 use testscribe::report::basic::{CheckAsyncRun, CheckRun};
 use testscribe::test_args::Given;
-use testscribe::tests_tree::BuildDagError;
+use testscribe::tests_tree::BuildTreeError;
 use testscribe::{CASES, testscribe};
 use utils::create_fq_name;
 use utils::tree::create_and_verify_tt;
@@ -19,7 +19,7 @@ async fn xxx(_: Given<NotAsync>) {
 #[test]
 fn async_test_must_run_in_async_context() {
     match create_and_verify_tt(&CASES, false).unwrap_err() {
-        BuildDagError::AsyncnessMismatch {
+        BuildTreeError::AsyncnessMismatch {
             parent,
             parent_is_async,
             test,

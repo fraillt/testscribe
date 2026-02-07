@@ -1,32 +1,48 @@
 mod utils;
 
 use testscribe::report::basic::CheckEq;
-use testscribe::test_args::{Env, Given};
+use testscribe::test_args::{Env, Environment, Given};
 use testscribe::testscribe;
 
-#[testscribe(env)]
-async fn xxx() -> i32 {
-    54
+struct Initial {
+    value: i32,
 }
 
-#[testscribe(env)]
-fn xxx2(p: i32) -> bool {
-    p == 10
+impl Environment for Initial {
+    type Base = ();
+
+    async fn create(_base: Self::Base) -> Self {
+        Initial { value: 54 }
+    }
+}
+
+struct NextEnv {
+    value: bool,
+}
+
+impl Environment for NextEnv {
+    type Base = Initial;
+
+    async fn create(base: Self::Base) -> Self {
+        NextEnv {
+            value: base.value == 10,
+        }
+    }
 }
 
 #[testscribe]
-fn wrap_env_in_another(_: Given<DependsOnUpdatedEnv>, Env(e): Env<Xxx2>) {
-    then!(e).eq(&true);
+fn wrap_env_in_another(_: Given<DependsOnUpdatedEnv>, Env(e): Env<NextEnv>) {
+    then!(e.value => env).eq(true);
 }
 
 #[testscribe]
-fn depends_on_updated_env(given: Given<SetEnvTo10>, e: Env<Xxx>) {
+fn depends_on_updated_env(given: Given<SetEnvTo10>, e: Env<Initial>) {
     then!(*given => sd).eq(true);
-    then!(*e => env).eq(10);
+    then!(e.value => env).eq(10);
 }
 
 #[testscribe]
-fn bar(_: Given<SetEnvTo10>, _: Env<Xxx>) {
+fn bar(_: Given<SetEnvTo10>, _: Env<Initial>) {
     then!("");
 }
 
@@ -37,8 +53,8 @@ fn foo(_: Given<SetEnvTo10>) {
 
 #[testscribe(standalone)]
 #[test]
-fn set_env_to_10(mut e: Env<Xxx>) -> bool {
-    *e = 10;
-    then!(*e => env).eq(10);
+fn set_env_to_10(mut e: Env<Initial>) -> bool {
+    e.value = 10;
+    then!(e.value => env).eq(10);
     true
 }

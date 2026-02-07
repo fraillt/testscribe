@@ -1,21 +1,18 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::test_case::{FqFnName, TestCase};
+use crate::test_case::{FqFnName, TestCase, name_from_type};
 
 #[derive(Error, Debug)]
-pub enum BuildDagError {
-    #[error("Initial environment creation cannot have any arguments ({env_name})")]
-    EnvironmentInitiationWithArgument { env_name: FqFnName<'static> },
-    #[error(
-        "Test `{current_test}` failed to create a new environment because it expected the previous environment to be of type `{current_env_init_type}`, but found `{parent_env_type}` instead."
-    )]
-    EnvironmentTransformMismatch {
-        parent_env_type: &'static str,
+pub enum BuildTreeError {
+    #[error("Initial environment `Base` must be of type `()`")]
+    EnvironmentBaseMismatch {
         current_test: FqFnName<'static>,
-        current_env_init_type: &'static str,
+        env_name: FqFnName<'static>,
+        expected_base: FqFnName<'static>,
+        actual_base: FqFnName<'static>,
     },
     #[error("Test `{test}` is async, but runtime is not async")]
     AsyncRuntimeRequired { test: FqFnName<'static> },
@@ -37,36 +34,35 @@ pub struct TestsTree {
 }
 
 impl TestsTree {
-    pub fn visit(&self, f: &mut dyn FnMut(&'static TestCase)) {
-        f(&self.node);
+    pub fn visit(&self, f: &mut dyn FnMut(&'static TestCase, usize)) {
+        f(&self.node, 0);
         for c in &self.childs {
-            c.visit(f);
+            c.visit_with_depth(f, 1);
         }
     }
 
-    pub fn verify(&self, is_async_runtime: bool) -> Result<(), BuildDagError> {
+    fn visit_with_depth(&self, f: &mut dyn FnMut(&'static TestCase, usize), depth: usize) {
+        f(&self.node, depth);
+        for c in &self.childs {
+            c.visit_with_depth(f, depth + 1);
+        }
+    }
+
+    pub fn verify(&self, is_async_runtime: bool) -> Result<(), BuildTreeError> {
         if self.node.test_fn.is_async() && !is_async_runtime {
-            return Err(BuildDagError::AsyncRuntimeRequired {
+            return Err(BuildTreeError::AsyncRuntimeRequired {
                 test: self.node.name,
             });
         }
         self.verify_asyncness(self.node.test_fn.is_async())?;
-
-        if let Some(env) = &self.node.env {
-            if ((env.arg_type)()) != "()" {
-                return Err(BuildDagError::EnvironmentInitiationWithArgument {
-                    env_name: (env.get_name)(),
-                });
-            }
-        }
-        self.verify_env()?;
+        self.verify_env(name_from_type::<()>())?;
         Ok(())
     }
 
-    fn verify_asyncness(&self, root_async: bool) -> Result<(), BuildDagError> {
+    fn verify_asyncness(&self, root_async: bool) -> Result<(), BuildTreeError> {
         for child in &self.childs {
             if child.node.test_fn.is_async() != root_async {
-                return Err(BuildDagError::AsyncnessMismatch {
+                return Err(BuildTreeError::AsyncnessMismatch {
                     parent: self.node.name,
                     parent_is_async: root_async,
                     test: child.node.name,
@@ -78,30 +74,25 @@ impl TestsTree {
         Ok(())
     }
 
-    fn verify_env(&self) -> Result<(), BuildDagError> {
-        for child in &self.childs {
-            if let Some(env) = &child.node.env {
-                if let Some(this_env) = &self.node.env {
-                    if (this_env.get_name)() != (env.get_name)()
-                        && (env.arg_type)() != (this_env.return_type)()
-                    {
-                        return Err(BuildDagError::EnvironmentTransformMismatch {
-                            parent_env_type: (this_env.return_type)(),
-                            current_test: child.node.name,
-                            current_env_init_type: (env.arg_type)(),
-                        });
-                    }
-                } else {
-                    if ((env.arg_type)()) != "()" {
-                        return Err(BuildDagError::EnvironmentTransformMismatch {
-                            parent_env_type: "()",
-                            current_test: child.node.name,
-                            current_env_init_type: (env.arg_type)(),
-                        });
-                    }
-                }
+    fn verify_env(&self, base: FqFnName<'static>) -> Result<(), BuildTreeError> {
+        let env_name = if let Some(env) = &self.node.env {
+            let env_name = (env.self_type)();
+            let expected_base = (env.base_type)();
+            if expected_base != base && env_name != base {
+                return Err(BuildTreeError::EnvironmentBaseMismatch {
+                    current_test: self.node.name,
+                    env_name,
+                    expected_base,
+                    actual_base: base,
+                });
             }
-            child.verify_env()?;
+            env_name
+        } else {
+            name_from_type::<()>()
+        };
+
+        for child in &self.childs {
+            child.verify_env(env_name)?;
         }
         Ok(())
     }
@@ -122,32 +113,15 @@ impl TestsTree {
 
 pub fn create_test_trees(
     test_cases: &'static [TestCase],
-) -> Result<BTreeMap<FqFnName<'static>, TestsTree>, BuildDagError> {
-    let GroupedTests {
-        mut roots,
-        mut childs,
-    } = get_roots_and_childs(test_cases)?;
+) -> BTreeMap<FqFnName<'static>, TestsTree> {
+    let mut roots = BTreeMap::new();
+    let mut childs: BTreeMap<FqFnName<'static>, Vec<&'static TestCase>> = BTreeMap::new();
 
-    for tree in &mut roots.values_mut() {
-        tree.assign_childs(&mut childs);
-    }
-
-    Ok(roots)
-}
-
-#[derive(Default)]
-struct GroupedTests {
-    roots: BTreeMap<FqFnName<'static>, TestsTree>,
-    childs: BTreeMap<FqFnName<'static>, Vec<&'static TestCase>>,
-}
-
-fn get_roots_and_childs(all: &'static [TestCase]) -> Result<GroupedTests, BuildDagError> {
-    let mut res = GroupedTests::default();
-    for t in all {
+    for t in test_cases {
         if let Some(parent) = t.parent.as_ref() {
-            res.childs.entry((parent.get_name)()).or_default().push(t);
+            childs.entry((parent.get_name)()).or_default().push(t);
         } else {
-            res.roots.insert(
+            roots.insert(
                 t.name,
                 TestsTree {
                     node: t,
@@ -156,5 +130,100 @@ fn get_roots_and_childs(all: &'static [TestCase]) -> Result<GroupedTests, BuildD
             );
         }
     }
-    Ok(res)
+
+    for tree in &mut roots.values_mut() {
+        tree.assign_childs(&mut childs);
+    }
+    roots
+}
+
+/// Filters test trees by removing tests that don't match the filter function.
+/// Parent tests are automatically kept if any of their children pass the filter,
+/// ensuring the full test hierarchy remains intact.
+/// `filter_out_fn` should return true for tests to be filtered out.
+pub fn filter_test_trees(
+    trees: BTreeMap<FqFnName<'static>, TestsTree>,
+    filter_out_fn: impl Fn(&'static TestCase) -> bool,
+) -> BTreeMap<FqFnName<'static>, TestsTree> {
+    let mut tests = HashMap::new();
+
+    for tree in trees.values() {
+        build_filter_info(tree, None, &filter_out_fn, &mut tests);
+    }
+
+    // unfilter parents of non-filtered tests
+    for tree in trees.values() {
+        unfilter_parents(tree, &mut tests);
+    }
+
+    trees
+        .into_iter()
+        .filter_map(|(name, tree)| {
+            remove_filtered_tests(&tree, &tests).map(|new_tree| (name, new_tree))
+        })
+        .collect()
+}
+
+#[derive(Debug)]
+struct TestFilterInfo {
+    filtered: bool,
+    parent: Option<FqFnName<'static>>,
+}
+
+fn remove_filtered_tests(
+    tree: &TestsTree,
+    tests: &HashMap<FqFnName<'static>, TestFilterInfo>,
+) -> Option<TestsTree> {
+    let info = tests.get(&tree.node.name).unwrap();
+    if info.filtered {
+        return None;
+    }
+
+    let mut new_tree = TestsTree {
+        node: tree.node,
+        childs: vec![],
+    };
+    for child in &tree.childs {
+        if let Some(new_child) = remove_filtered_tests(child, tests) {
+            new_tree.childs.push(new_child);
+        }
+    }
+    Some(new_tree)
+}
+
+fn build_filter_info(
+    tree: &TestsTree,
+    parent: Option<FqFnName<'static>>,
+    filter_out_fn: &dyn Fn(&'static TestCase) -> bool,
+    tests: &mut HashMap<FqFnName<'static>, TestFilterInfo>,
+) {
+    tests.insert(
+        tree.node.name,
+        TestFilterInfo {
+            parent,
+            filtered: filter_out_fn(&tree.node),
+        },
+    );
+    for child in &tree.childs {
+        build_filter_info(child, Some(tree.node.name), filter_out_fn, tests);
+    }
+}
+
+fn unfilter_parents(tree: &TestsTree, tests: &mut HashMap<FqFnName<'static>, TestFilterInfo>) {
+    let info = tests.get(&tree.node.name).unwrap();
+    if !info.filtered {
+        let mut parent = info.parent;
+        while let Some(parent_name) = parent {
+            let parent_info = tests.get_mut(&parent_name).unwrap();
+            if !parent_info.filtered {
+                break;
+            }
+            parent_info.filtered = false;
+            parent = parent_info.parent;
+        }
+    }
+
+    for child in &tree.childs {
+        unfilter_parents(child, tests);
+    }
 }

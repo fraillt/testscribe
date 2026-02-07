@@ -7,6 +7,8 @@ use serde::Serialize;
 pub use fns::{CloneFns, EnvFns, ParamsFn, ParentFn, TestFn, TestParams, Value};
 pub use name::FqFnName;
 
+pub(crate) use fns::name_from_type;
+
 #[derive(Debug, Serialize)]
 pub struct TestCase {
     pub name: FqFnName<'static>,

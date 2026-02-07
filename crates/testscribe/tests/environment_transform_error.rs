@@ -1,19 +1,30 @@
-use testscribe::test_args::{Env, Given};
-use testscribe::tests_tree::BuildDagError;
+use testscribe::test_args::{Env, Environment, Given};
+use testscribe::tests_tree::BuildTreeError;
 use testscribe::{CASES, testscribe};
 
 use crate::utils::create_fq_name;
 use crate::utils::tree::create_and_verify_tt;
 
 mod utils;
-#[testscribe(env)]
-fn env_root() -> bool {
-    true
+
+struct EnvRoot {}
+
+impl Environment for EnvRoot {
+    type Base = ();
+
+    async fn create(_base: Self::Base) -> Self {
+        Self {}
+    }
 }
 
-#[testscribe(env)]
-fn env_next(_: String) -> i32 {
-    5
+struct EnvNext {}
+
+impl Environment for EnvNext {
+    type Base = ();
+
+    async fn create(_base: Self::Base) -> Self {
+        Self {}
+    }
 }
 
 #[testscribe]
@@ -29,10 +40,11 @@ fn next_test(_: Given<RootTest>, _: Env<EnvNext>) {
 #[test]
 fn boo() {
     let err = create_and_verify_tt(&CASES, false).unwrap_err();
-    let BuildDagError::EnvironmentTransformMismatch {
+    let BuildTreeError::EnvironmentBaseMismatch {
         current_test,
-        current_env_init_type,
-        parent_env_type,
+        env_name,
+        expected_base,
+        actual_base,
     } = err
     else {
         panic!("Must be environment transform error");
@@ -41,6 +53,13 @@ fn boo() {
         current_test,
         create_fq_name("environment_transform_error::NextTest")
     );
-    assert_eq!(current_env_init_type, "alloc::string::String");
-    assert_eq!(parent_env_type, "bool");
+    assert_eq!(
+        env_name,
+        create_fq_name("environment_transform_error::EnvNext")
+    );
+    assert_eq!(expected_base, create_fq_name("()"));
+    assert_eq!(
+        actual_base,
+        create_fq_name("environment_transform_error::EnvRoot")
+    );
 }

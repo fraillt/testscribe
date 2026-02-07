@@ -1,115 +1,180 @@
-use std::collections::HashMap;
 use std::io::Write;
 use std::mem::take;
+use std::path::Path;
 use std::time::Duration;
 
+use backtrace::BacktraceFrame;
 use colored::Colorize;
 
 use testscribe_core::processor::logger::{
-    TestRunInfo, TestStatusUpdate, TestUpdate, VerifyOutcome,
+    Logger, SkipReason, TestRunInfo, TestStatusUpdate, TestUpdate, VerifyOutcome,
 };
 use testscribe_core::test_case::{FqFnName, TestCase};
-use testscribe_core::tests_tree::TestsTree;
 
-use crate::logger::{FailedTest, Failure};
+use crate::logger::summary::Failure;
+use crate::panic_hook::PanicDetails;
 
 pub struct TestFormatter<'a> {
-    test_info: HashMap<FqFnName<'static>, &'static TestCase>,
     out: &'a mut dyn Write,
-    current_test: Option<TestRunInfo>,
+    current_test_info: Option<TestRunInfo>,
     started_at: Option<Duration>,
     test_updates: Vec<TestUpdate>,
-    pub failed_tests: Vec<FailedTest>,
-    test_with_params: Option<FqFnName<'static>>,
 }
 
-impl<'a> TestFormatter<'a> {
-    pub fn new(dag: &TestsTree, out: &'a mut dyn Write) -> Self {
-        let mut test_info = HashMap::new();
-        dag.visit(&mut |t| {
-            test_info.insert(t.name, t);
-        });
-        Self {
-            current_test: None,
-            started_at: None,
-            test_updates: Vec::new(),
-            test_info,
-            failed_tests: Default::default(),
-            out,
-            test_with_params: None,
-        }
-    }
-
-    pub fn replay_event(&mut self, update: TestStatusUpdate, elapsed: Duration) {
+impl Logger for TestFormatter<'_> {
+    fn log(&mut self, test: &'static TestCase, update: TestStatusUpdate, elapsed: Duration) {
         match update {
             TestStatusUpdate::Started { info } => {
-                self.current_test = Some(info);
+                self.current_test_info = Some(info);
                 self.started_at = Some(elapsed)
             }
             TestStatusUpdate::Updated { info } => {
                 self.test_updates.push(info);
             }
             TestStatusUpdate::Finished { panic_message } => {
-                self.finished(panic_message, elapsed);
+                self.finished(test, panic_message, elapsed);
             }
-            TestStatusUpdate::Skipped { info, reason: _ } => {
-                if info.run_count == 0 {
-                    writeln!(
-                        self.out,
-                        "?|{: >8}|{}{} {}",
-                        format_time(Duration::from_secs(0)),
-                        "  ".repeat(info.depth),
-                        if info.depth == 0 {
-                            "Given".yellow()
-                        } else {
-                            "When".yellow()
-                        },
-                        make_test_name(info.name.name)
-                    )
-                    .unwrap();
-                }
+            TestStatusUpdate::Skipped { info, reason } => {
+                self.skipped(test.name, info, reason);
+            }
+        }
+    }
+}
+
+impl<'a> TestFormatter<'a> {
+    pub fn new(out: &'a mut dyn Write) -> Self {
+        Self {
+            current_test_info: None,
+            started_at: None,
+            test_updates: Vec::new(),
+            out,
+        }
+    }
+
+    pub fn print_panics(&mut self, panics: &[PanicDetails]) {
+        if !panics.is_empty() {
+            writeln!(self.out, "panic info:").unwrap();
+        }
+
+        for panic in panics {
+            writeln!(
+                self.out,
+                "loc | {}:{}:{}",
+                panic.location.file, panic.location.line, panic.location.col
+            )
+            .unwrap();
+            let msg = panic
+                .message
+                .clone()
+                .map(|msg| msg.replace('\n', "\n    | "))
+                .unwrap_or_else(|| "???".to_owned());
+            writeln!(self.out, "msg | {msg}",).unwrap();
+            let mut bt = panic.backtrace.clone();
+            writeln!(self.out, "bt  |").unwrap();
+            // resolve everything is very slow
+            bt.resolve();
+            let frames: Vec<BacktraceFrame> = bt.into();
+            for (index, symbol) in frames
+                .iter()
+                .flat_map(|f| f.symbols())
+                .filter_map(|s| {
+                    Some(BtSymbol {
+                        name: s.name()?.to_string(),
+                        path: s.filename()?,
+                        lineno: s.lineno()?,
+                        colno: s.colno()?,
+                    })
+                })
+                .skip_while(|s| s.name != "rust_begin_unwind")
+                .take_while(|s| !s.name.contains("::TEST_CASE_"))
+                .enumerate()
+            {
+                writeln!(self.out, "{:>3} | {}", index + 1, symbol.name).unwrap();
+                writeln!(
+                    self.out,
+                    "    | {}:{}:{}",
+                    symbol.path.to_string_lossy(),
+                    symbol.lineno,
+                    symbol.colno
+                )
+                .unwrap();
             }
         }
     }
 
-    fn finished(&mut self, panic_message: Option<String>, elapsed: Duration) {
-        let test = self.current_test.clone().unwrap();
-        let mut failures = Vec::new();
-        if let Some(payload) = &panic_message {
-            let info = self.test_info.get(&test.name).unwrap();
-            failures.push(Failure {
-                param_index: None,
-                message: "test should not panic".to_string(),
-                file: info.filename,
-                line_nr: info.line_nr,
-                details: payload.clone(),
-            });
+    pub fn print_failures(&mut self, failed: &[(FqFnName<'static>, Vec<Failure>)]) {
+        if !failed.is_empty() {
+            writeln!(self.out, "failures:").unwrap();
         }
-        let duration = elapsed - self.started_at.unwrap();
-        let test_updates = take(&mut self.test_updates);
-        if test.run_count == 0 {
-            if Some(test.name) != self.test_with_params {
+
+        for (name, failures) in failed {
+            for failure in failures {
                 writeln!(
                     self.out,
-                    "{}|{: >8}|{}{} {}",
-                    if panic_message.is_some() { "!" } else { " " },
-                    format_time(duration),
-                    "  ".repeat(test.depth),
-                    if test.depth == 0 {
-                        "Given".yellow()
+                    "  {}:{}:0\t{}\t{}\n\t{}",
+                    failure.file,
+                    failure.line_nr,
+                    name,
+                    if let Some(index) = failure.param_index {
+                        format!("{} ({})", failure.message, index)
                     } else {
-                        "When".yellow()
+                        failure.message.clone()
                     },
-                    make_test_name(test.name.name)
+                    failure.details,
                 )
                 .unwrap();
             }
-            if let Some(param) = &test.param_info {
-                self.test_with_params = Some(test.name);
+        }
+    }
+
+    fn skipped(&mut self, name: FqFnName<'static>, info: TestRunInfo, _reason: SkipReason) {
+        if info.run_count == 0 {
+            writeln!(
+                self.out,
+                "?|{: >8}|{}{} {}",
+                format_time(Duration::from_secs(0)),
+                "  ".repeat(info.depth),
+                if info.depth == 0 {
+                    "Given".yellow()
+                } else {
+                    "When".yellow()
+                },
+                make_test_name(name.name)
+            )
+            .unwrap();
+        }
+    }
+
+    fn finished(
+        &mut self,
+        test: &'static TestCase,
+        panic_message: Option<String>,
+        elapsed: Duration,
+    ) {
+        let test_info = self.current_test_info.clone().unwrap();
+        let duration = elapsed - self.started_at.unwrap();
+        let test_updates = take(&mut self.test_updates);
+        if test_info.run_count == 0 {
+            writeln!(
+                self.out,
+                "{}|{: >8}|{}{} {}",
+                if panic_message.is_some() { "!" } else { " " },
+                format_time(duration),
+                "  ".repeat(test_info.depth),
+                if test_info.depth == 0 {
+                    "Given".yellow()
+                } else {
+                    "When".yellow()
+                },
+                make_test_name(test.name.name)
+            )
+            .unwrap();
+            if let Some(param) = &test_info.param_info {
                 writeln!(
                     self.out,
-                    " |        |{}- with {}",
-                    "  ".repeat(test.depth),
+                    " |        |{}{} {}",
+                    "  ".repeat(test_info.depth),
+                    "With".yellow(),
                     param
                         .headers
                         .iter()
@@ -119,8 +184,6 @@ impl<'a> TestFormatter<'a> {
                         .join(","),
                 )
                 .unwrap();
-            } else {
-                self.test_with_params = None;
             }
 
             let mut params_state = None;
@@ -128,15 +191,15 @@ impl<'a> TestFormatter<'a> {
                 match update {
                     TestUpdate::Verified {
                         message,
-                        line_nr,
-                        file,
+                        line_nr: _,
+                        file: _,
                         outcome,
                     } => {
                         writeln!(
                             self.out,
                             "{}|       -|  {}{} {}",
                             get_assertion_status(&outcome),
-                            "  ".repeat(test.depth),
+                            "  ".repeat(test_info.depth),
                             if index == 0 {
                                 if let VerifyOutcome::Success = &outcome {
                                     "Then".yellow()
@@ -157,32 +220,23 @@ impl<'a> TestFormatter<'a> {
                             }
                         )
                         .unwrap();
-                        if let VerifyOutcome::Failure { details } = outcome {
-                            failures.push(Failure {
-                                param_index: None,
-                                message,
-                                line_nr,
-                                file,
-                                details,
-                            });
-                        }
                     }
                     TestUpdate::ParamsStarted {
                         message,
-                        line_nr,
-                        file,
+                        line_nr: _,
+                        file: _,
                         header,
                     } => {
                         params_state = Some(ParamsState {
+                            index,
                             message,
-                            line_nr,
-                            file,
                             header,
                             outcomes: Default::default(),
                             rows_fields: Default::default(),
                         });
                     }
                     TestUpdate::ParamVerified {
+                        index: _,
                         row_fields,
                         outcome,
                     } => {
@@ -198,8 +252,8 @@ impl<'a> TestFormatter<'a> {
                         writeln!(
                             self.out,
                             " |       -|  {}{} {}",
-                            "  ".repeat(test.depth),
-                            if index == 0 {
+                            "  ".repeat(test_info.depth),
+                            if state.index == 0 {
                                 "Then".yellow()
                             } else {
                                 "And".yellow()
@@ -210,19 +264,19 @@ impl<'a> TestFormatter<'a> {
                         writeln!(
                             self.out,
                             " |       -|  {}|{} |",
-                            "  ".repeat(test.depth),
+                            "  ".repeat(test_info.depth),
                             header.join(",")
                         )
                         .unwrap();
 
-                        for (index, (row, outcome)) in
+                        for (_index, (row, outcome)) in
                             state.rows_fields.iter().zip(state.outcomes).enumerate()
                         {
                             writeln!(
                                 self.out,
                                 "{}|       -|  {}|{} |",
                                 get_assertion_status(&outcome),
-                                "  ".repeat(test.depth),
+                                "  ".repeat(test_info.depth),
                                 if let VerifyOutcome::Success = &outcome {
                                     row.join(",")
                                 } else {
@@ -230,34 +284,25 @@ impl<'a> TestFormatter<'a> {
                                 },
                             )
                             .unwrap();
-                            if let VerifyOutcome::Failure { details } = outcome {
-                                failures.push(Failure {
-                                    param_index: Some(index),
-                                    message: state.message.clone(),
-                                    line_nr: state.line_nr,
-                                    file: state.file,
-                                    details,
-                                });
-                            }
                         }
                     }
                 };
             }
         }
-
-        if !failures.is_empty() {
-            self.failed_tests.push(FailedTest {
-                name: test.name,
-                failures,
-            });
-        }
     }
 }
 
+#[derive(Debug)]
+struct BtSymbol<'a> {
+    name: String,
+    path: &'a Path,
+    lineno: u32,
+    colno: u32,
+}
+
 struct ParamsState {
+    index: usize, // to determine whether it's Then or And
     message: String,
-    line_nr: u32,
-    file: &'static str,
     header: Vec<&'static str>,
     rows_fields: Vec<Vec<String>>,
     outcomes: Vec<VerifyOutcome>,

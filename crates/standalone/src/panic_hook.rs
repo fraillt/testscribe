@@ -8,14 +8,14 @@ use testscribe_core::processor::panic::extract_string_from_panic_payload;
 
 static PANIC_HOOK_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-#[derive(Debug, Serialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
 pub struct PanicLocation {
     pub file: String,
     pub line: u32,
     pub col: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PanicDetails {
     pub location: PanicLocation,
     pub backtrace: Backtrace,

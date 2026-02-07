@@ -1,13 +1,11 @@
 mod config;
 mod derive_param_display;
-mod expand_env;
 mod expand_params;
 mod expand_test;
 mod test_fn;
 mod utils;
 
 use config::Config;
-use expand_env::expand_env;
 use expand_params::expand_params;
 use expand_test::expand_test;
 use proc_macro::TokenStream;
@@ -23,7 +21,6 @@ pub fn testscribe(attr: TokenStream, item: TokenStream) -> TokenStream {
     match config {
         Config::Test(test_config) => TokenStream::from(expand_test(test_config, test_fn)),
         Config::Params => TokenStream::from(expand_params(test_fn)),
-        Config::Environment => TokenStream::from(expand_env(test_fn)),
     }
 }
 

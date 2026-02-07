@@ -166,14 +166,7 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
         if let Some(path) = config.is_standalone {
             return Error::new(
                 path.span(),
-                "Standalone test cannot depend on previous test state.",
-            )
-            .to_compile_error();
-        }
-        if let Some(ident) = config.tags.first() {
-            return Error::new(
-                ident.span(),
-                "Tags can only be set on root test (no parent)s.",
+                "Standalone test must be a root test (no parent)",
             )
             .to_compile_error();
         }

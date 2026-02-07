@@ -170,11 +170,11 @@ where
     where
         Res: Into<VerifyOutcome>,
     {
-        for value in self.params {
+        for (index, value) in self.params.into_iter().enumerate() {
             let row_fields = value.values();
             let res = catch_unwind(AssertUnwindSafe(|| test_fn(value)));
             self.reporter
-                .set_param_outcome(row_fields, get_run_outcome(res));
+                .set_param_outcome(index, row_fields, get_run_outcome(res));
         }
     }
 }
@@ -187,11 +187,11 @@ where
     where
         Res: Into<VerifyOutcome>,
     {
-        for value in self.params {
+        for (index, value) in self.params.into_iter().enumerate() {
             let row_fields = value.values();
             let res = AssertUnwindSafe(test_fn(value)).catch_unwind().await;
             self.reporter
-                .set_param_outcome(row_fields, get_run_outcome(res));
+                .set_param_outcome(index, row_fields, get_run_outcome(res));
         }
     }
 }

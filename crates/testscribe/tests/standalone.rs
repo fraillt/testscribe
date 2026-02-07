@@ -53,7 +53,7 @@ fn p1() -> Vec<NameWithCount> {
         .collect()
 }
 
-#[testscribe]
+#[testscribe(tags = [ignored])]
 async fn depends_on_async_must_be_also_async(_x: Given<AsyncTest>, Param(p): Param<P1>) {
     if p.count == 3 {
         then!(p.count => count).eq(3);

@@ -9,8 +9,10 @@ repository.workspace = true
 
 [dependencies]
 backtrace = { version = "0.3", features = ["serde"] }
+clap = "4.5.57"
 colored = "3"
 futures = "0.3"
+libtest-mimic = "0.8"
 serde = { version = "1", features = ["derive"] }
 testscribe-core.workspace = true
-thiserror = "2"
+

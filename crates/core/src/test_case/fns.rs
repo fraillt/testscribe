@@ -201,10 +201,9 @@ impl ParamsFn {
 
 #[derive(Debug, Clone)]
 pub struct EnvFns {
-    pub push_env: fn(Value) -> Pin<Box<dyn Future<Output = Value>>>,
-    pub get_name: fn() -> FqFnName<'static>,
-    pub arg_type: fn() -> &'static str,
-    pub return_type: fn() -> &'static str,
+    pub create_env: fn(Value) -> Pin<Box<dyn Future<Output = Value>>>,
+    pub base_type: fn() -> FqFnName<'static>,
+    pub self_type: fn() -> FqFnName<'static>,
 }
 
 impl EnvFns {
@@ -217,13 +216,12 @@ impl EnvFns {
         A: Parameter,
     {
         EnvFns {
-            push_env: |mut parent| {
+            create_env: |mut parent| {
                 let value = parent.take();
-                Box::pin(async move { Value::new(E::push(value).await) })
+                Box::pin(async move { Value::new(E::create(value).await) })
             },
-            get_name: || name_from_type::<E>(),
-            arg_type: || type_name::<E::Parent>(),
-            return_type: || type_name::<E::Current>(),
+            base_type: || name_from_type::<E::Base>(),
+            self_type: || name_from_type::<E>(),
         }
     }
 
@@ -237,12 +235,11 @@ impl EnvFns {
         A: Parameter,
     {
         EnvFns {
-            push_env: |mut parent| {
-                Box::pin(async move { Value::new(E::push(parent.take()).await) })
+            create_env: |mut parent| {
+                Box::pin(async move { Value::new(E::create(parent.take()).await) })
             },
-            get_name: || name_from_type::<E>(),
-            arg_type: || type_name::<E::Parent>(),
-            return_type: || type_name::<E::Current>(),
+            base_type: || name_from_type::<E::Base>(),
+            self_type: || name_from_type::<E>(),
         }
     }
 }
@@ -260,13 +257,12 @@ impl CloneFns {
     where
         StateOut: Clone + Send + 'static,
         P: ParentTest,
-        E: Environment,
-        E::Current: Clone + 'static,
+        E: Environment + Clone + 'static,
         A: Parameter,
     {
         CloneFns {
             state: |outcome| outcome.clone_as::<StateOut>(),
-            env: |current| current.clone_as::<E::Current>(),
+            env: |current| current.clone_as::<E>(),
         }
     }
 
@@ -277,19 +273,20 @@ impl CloneFns {
         StateOut: Clone + Send + 'static,
         Fut: Future<Output = StateOut> + 'a,
         P: ParentTest,
-        E: Environment,
-        E::Current: Clone + 'static,
+        E: Environment + Clone + 'static,
         A: Parameter,
     {
         CloneFns {
             state: |outcome| outcome.clone_as::<StateOut>(),
-            env: |current| current.clone_as::<E::Current>(),
+            env: |current| current.clone_as::<E>(),
         }
     }
 }
 
-fn name_from_type<T>() -> FqFnName<'static> {
+pub(crate) fn name_from_type<T>() -> FqFnName<'static> {
     let name = type_name::<T>();
-    let (path, name) = name.rsplit_once("::").unwrap();
-    FqFnName { path, name }
+    match name.rsplit_once("::") {
+        Some((path, name)) => FqFnName { path, name },
+        None => FqFnName { path: "", name },
+    }
 }

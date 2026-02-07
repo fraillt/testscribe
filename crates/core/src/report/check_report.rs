@@ -42,8 +42,14 @@ pub struct ParamCheckReporter<'a> {
 }
 
 impl ParamCheckReporter<'_> {
-    pub fn set_param_outcome(&mut self, row_fields: Vec<String>, outcome: VerifyOutcome) {
+    pub fn set_param_outcome(
+        &mut self,
+        index: usize,
+        row_fields: Vec<String>,
+        outcome: VerifyOutcome,
+    ) {
         self.report.update(TestUpdate::ParamVerified {
+            index,
             row_fields,
             outcome,
         });
