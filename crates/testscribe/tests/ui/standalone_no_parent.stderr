@@ -1,0 +1,5 @@
+error: Standalone test must be a root test (no parent)
+ --> tests/ui/standalone_no_parent.rs:8:14
+  |
+8 | #[testscribe(standalone)]
+  |              ^^^^^^^^^^

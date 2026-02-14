@@ -57,7 +57,7 @@ impl TestsRunner {
                 if let Some(clone_fns) = curr.test.node.clone.as_ref() {
                     if should_clone(curr, remaining) {
                         curr.state.process = Some(TestProcess::AlreadyProcessed {
-                            outcome: new_run.clone_state(clone_fns),
+                            outcome: new_run.clone_state(clone_fns).await,
                         });
                     }
                 }
@@ -248,7 +248,7 @@ pub mod tests {
     use super::*;
     use crate::processor::filter::NoFilter;
     use crate::processor::logger::TestStatusUpdate;
-    use crate::test_case::{CloneFns, FqFnName, TestCase, TestFn, Value};
+    use crate::test_case::{CloneFn, CloneFns, FqFnName, TestCase, TestFn};
     use crate::tests_tree::create_test_trees;
 
     struct TestCaseBuilder {
@@ -286,8 +286,8 @@ pub mod tests {
                 params: None,
                 clone: if self.is_cloneable {
                     Some(CloneFns {
-                        state: |_| Value::new(()),
-                        env: |_| Value::new(()),
+                        state: CloneFn::new_sync::<()>(),
+                        env: CloneFn::new_sync::<()>(),
                     })
                 } else {
                     None

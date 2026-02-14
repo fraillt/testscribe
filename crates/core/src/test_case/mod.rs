@@ -4,7 +4,7 @@ mod name;
 
 use serde::Serialize;
 
-pub use fns::{CloneFns, EnvFns, ParamsFn, ParentFn, TestFn, TestParams, Value};
+pub use fns::{CloneFn, CloneFns, EnvFns, ParamsFn, ParentFn, TestFn, TestParams, Value};
 pub use name::FqFnName;
 
 pub(crate) use fns::name_from_type;

@@ -1,0 +1,5 @@
+error: `tags` cannot be used in `params` mode
+ --> tests/ui/params_mode.rs:6:28
+  |
+6 | #[testscribe(params, tags=[fasd])]
+  |                            ^^^^

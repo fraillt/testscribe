@@ -20,44 +20,9 @@ pub struct EnvData {
 impl EnvData {
     fn new_empty() -> Self {
         EnvData {
-            name: FqFnName::new("", "NoEnvironment"),
+            name: FqFnName::new("", "()"),
             data: Value::new(()),
             is_empty: true,
-        }
-    }
-
-    async fn init_specific_env(self, info: &EnvFns) -> Result<Self, SkipReason> {
-        let name = (info.self_type)();
-        if name != self.name {
-            let env_res = AssertUnwindSafe((info.create_env)(self.data))
-                .catch_unwind()
-                .await;
-            match env_res {
-                Ok(data) => Ok(EnvData {
-                    name,
-                    data,
-                    is_empty: false,
-                }),
-                Err(err) => {
-                    let message = extract_string_from_panic_payload(&err)
-                        .unwrap_or_else(|| "<unknown msg>".to_string());
-                    Err(SkipReason::Panicked {
-                        name,
-                        location: PanicLocation::Environment,
-                        message,
-                    })
-                }
-            }
-        } else {
-            Ok(self)
-        }
-    }
-
-    fn empty_env(self) -> Self {
-        if self.is_empty {
-            self
-        } else {
-            EnvData::new_empty()
         }
     }
 }
@@ -75,16 +40,36 @@ impl RunState {
         }
     }
 
-    pub fn clone_state(&self, clone_fns: &CloneFns) -> RunState {
+    pub async fn clone_state(&self, clone_fns: &CloneFns) -> RunState {
         match self {
-            RunState::Run { test_data, env } => RunState::Run {
-                test_data: (clone_fns.state)(test_data),
-                env: EnvData {
-                    name: env.name,
-                    data: ((clone_fns.env)(&env.data)),
-                    is_empty: env.is_empty,
-                },
-            },
+            RunState::Run { test_data, env } => {
+                let state_res = AssertUnwindSafe(clone_fns.state.invoke(&test_data))
+                    .catch_unwind()
+                    .await;
+                let env_res = AssertUnwindSafe(clone_fns.env.invoke(&env.data))
+                    .catch_unwind()
+                    .await;
+                match (state_res, env_res) {
+                    (Ok(test_data), Ok(env_data)) => RunState::Run {
+                        test_data,
+                        env: EnvData {
+                            name: env.name.clone(),
+                            data: env_data,
+                            is_empty: env.is_empty,
+                        },
+                    },
+                    (state_res, env_res) => {
+                        let err = state_res.err().or_else(|| env_res.err()).unwrap();
+                        let message = extract_string_from_panic_payload(err.as_ref())
+                            .unwrap_or_else(|| "<unknown msg>".to_string());
+                        RunState::Skip(SkipReason::Panicked {
+                            name: env.name.clone(),
+                            location: PanicLocation::Setup,
+                            message,
+                        })
+                    }
+                }
+            }
             RunState::Skip(skip_reason) => RunState::Skip(skip_reason.clone()),
         }
     }
@@ -153,13 +138,9 @@ async fn execute_test(
     env_info: &Option<EnvFns>,
     params: Option<Value>,
 ) -> RunState {
-    let mut env = if let Some(required_env) = env_info {
-        match env.init_specific_env(required_env).await {
-            Ok(env) => env,
-            Err(reason) => return RunState::Skip(reason),
-        }
-    } else {
-        env.empty_env()
+    let mut env = match setup_env(env, env_info).await {
+        Ok(env) => env,
+        Err(reason) => return RunState::Skip(reason),
     };
 
     let name = test.name;
@@ -213,5 +194,40 @@ async fn execute_test(
                 message,
             })
         }
+    }
+}
+
+async fn setup_env(env: EnvData, env_info: &Option<EnvFns>) -> Result<EnvData, SkipReason> {
+    if let Some(required_env) = env_info {
+        let name = (required_env.self_type)();
+        if name != env.name {
+            let env_res = AssertUnwindSafe((required_env.create_env)(env.data))
+                .catch_unwind()
+                .await;
+            match env_res {
+                Ok(data) => Ok(EnvData {
+                    name,
+                    data,
+                    is_empty: false,
+                }),
+                Err(err) => {
+                    let message = extract_string_from_panic_payload(&err)
+                        .unwrap_or_else(|| "<unknown msg>".to_string());
+                    Err(SkipReason::Panicked {
+                        name,
+                        location: PanicLocation::Setup,
+                        message,
+                    })
+                }
+            }
+        } else {
+            Ok(env)
+        }
+    } else {
+        Ok(if env.is_empty {
+            env
+        } else {
+            EnvData::new_empty()
+        })
     }
 }

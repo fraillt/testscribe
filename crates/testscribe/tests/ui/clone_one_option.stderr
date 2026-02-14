@@ -1,0 +1,5 @@
+error: choose only one: `cloneable` or `cloneable_async`
+ --> tests/ui/clone_one_option.rs:3:25
+  |
+3 | #[testscribe(cloneable, cloneable_async)]
+  |                         ^^^^^^^^^^^^^^^

@@ -1,9 +1,11 @@
 mod utils;
 
+use testscribe::clone_async::CloneAsync;
 use testscribe::report::basic::CheckEq;
 use testscribe::test_args::{Env, Environment, Given};
 use testscribe::testscribe;
 
+#[derive(Debug, Clone)]
 struct Initial {
     value: i32,
 }
@@ -13,6 +15,12 @@ impl Environment for Initial {
 
     async fn create(_base: Self::Base) -> Self {
         Initial { value: 54 }
+    }
+}
+
+impl CloneAsync for Initial {
+    async fn clone_async(&self) -> Self {
+        Self { value: self.value }
     }
 }
 
@@ -35,7 +43,7 @@ fn wrap_env_in_another(_: Given<DependsOnUpdatedEnv>, Env(e): Env<NextEnv>) {
     then!(e.value => env).eq(true);
 }
 
-#[testscribe]
+#[testscribe(cloneable)]
 fn depends_on_updated_env(given: Given<SetEnvTo10>, e: Env<Initial>) {
     then!(*given => sd).eq(true);
     then!(e.value => env).eq(10);

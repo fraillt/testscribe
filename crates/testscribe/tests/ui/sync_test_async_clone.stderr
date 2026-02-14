@@ -1,0 +1,5 @@
+error: Cannot use `cloneable_async` when test function is sync
+ --> tests/ui/sync_test_async_clone.rs:3:14
+  |
+3 | #[testscribe(cloneable_async)]
+  |              ^^^^^^^^^^^^^^^

@@ -51,7 +51,7 @@ pub enum TestUpdate {
 #[serde(tag = "kind")]
 pub enum PanicLocation {
     Test,
-    Environment,
+    Setup,
 }
 
 #[derive(Debug, Clone, Serialize)]

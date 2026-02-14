@@ -70,9 +70,19 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     };
     let clone_fns = if config.is_cloneable.is_some() {
         if asyncness.is_some() {
-            quote!(Some(testscribe::test_case::CloneFns::from_async(#ident)))
+            quote!(Some(testscribe::test_case::CloneFns::from_async_clone_sync(#ident)))
         } else {
-            quote!(Some(testscribe::test_case::CloneFns::from_sync(#ident)))
+            quote!(Some(testscribe::test_case::CloneFns::from_sync_clone_sync(#ident)))
+        }
+    } else if let Some(cloneable_async) = config.is_cloneable_async {
+        if asyncness.is_some() {
+            quote!(Some(testscribe::test_case::CloneFns::from_async_clone_async(#ident)))
+        } else {
+            return Error::new(
+                cloneable_async.span(),
+                "Cannot use `cloneable_async` when test function is sync",
+            )
+            .to_compile_error();
         }
     } else {
         quote!(None)

@@ -1,3 +1,4 @@
+pub mod clone_async;
 pub mod processor;
 pub mod report;
 pub mod test_args;

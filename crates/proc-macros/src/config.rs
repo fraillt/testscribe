@@ -7,6 +7,7 @@ use syn::{Expr, Ident, Meta, Path, Token};
 pub struct TestConfig {
     pub is_standalone: Option<Path>,
     pub is_cloneable: Option<Path>,
+    pub is_cloneable_async: Option<Path>,
     pub tags: Vec<Ident>,
 }
 
@@ -23,11 +24,14 @@ impl Parse for Config {
         let mut test_config = TestConfig {
             is_standalone: None,
             is_cloneable: None,
+            is_cloneable_async: None,
             tags: Vec::new(),
         };
         for param in list {
             if param.path().is_ident("cloneable") {
                 test_config.is_cloneable = Some(param.path().clone());
+            } else if param.path().is_ident("cloneable_async") {
+                test_config.is_cloneable_async = Some(param.path().clone());
             } else if param.path().is_ident("params") {
                 is_param_mode = true;
             } else if param.path().is_ident("standalone") {
@@ -57,7 +61,7 @@ impl Parse for Config {
             } else {
                 return Err(Error::new(
                     param.span(),
-                    "Unexpected name, possible values are: params, cloneable, standalone, tags",
+                    "Unexpected name, possible values are: params, cloneable, cloneable_async, standalone, tags",
                 ));
             }
         }
@@ -66,6 +70,12 @@ impl Parse for Config {
                 return Err(Error::new(
                     path.span(),
                     "`cloneable` cannot be used in `params` mode",
+                ));
+            }
+            if let Some(path) = test_config.is_cloneable_async {
+                return Err(Error::new(
+                    path.span(),
+                    "`cloneable_async` cannot be used in `params` mode",
                 ));
             }
             if let Some(path) = test_config.is_standalone {
@@ -82,6 +92,14 @@ impl Parse for Config {
             }
             Ok(Config::Params)
         } else {
+            if test_config.is_cloneable.is_some() {
+                if let Some(path) = &test_config.is_cloneable_async {
+                    return Err(Error::new(
+                        path.span(),
+                        "choose only one: `cloneable` or `cloneable_async`",
+                    ));
+                }
+            }
             Ok(Config::Test(test_config))
         }
     }

@@ -1,0 +1,5 @@
+error: Unexpected name, possible values are: params, cloneable, cloneable_async, standalone, tags
+ --> tests/ui/unknown_attribute.rs:3:31
+  |
+3 | #[testscribe(tags=[fasd,fea], unknown)]
+  |                               ^^^^^^^

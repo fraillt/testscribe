@@ -117,7 +117,17 @@ pub fn create_test_trees(
     let mut roots = BTreeMap::new();
     let mut childs: BTreeMap<FqFnName<'static>, Vec<&'static TestCase>> = BTreeMap::new();
 
-    for t in test_cases {
+    let mut sorted: Vec<_> = test_cases.iter().collect();
+    sorted.sort_unstable_by(|a, b| (a.parent.is_some(), a.name).cmp(&(b.parent.is_some(), b.name)));
+
+    // let part_index = sorted.partition_point(|a| a.parent.is_some());
+    // let (roots, childs) = sorted.split_at(part_index);
+    // let mut roots: BTreeMap<_, _> = roots.into_iter().map(|t| (t.name, TestsTree {
+    //     node: t, childs: Default::default()
+    // }))
+    // .collect();
+
+    for t in sorted {
         if let Some(parent) = t.parent.as_ref() {
             childs.entry((parent.get_name)()).or_default().push(t);
         } else {

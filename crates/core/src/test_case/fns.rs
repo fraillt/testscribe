@@ -7,6 +7,7 @@ use std::{
 use serde::{Serialize, Serializer};
 
 use crate::{
+    clone_async::CloneAsync,
     report::TestReport,
     test_args::{Env, Environment, Given, Param, ParamDisplay, Parameter, ParentTest},
     test_case::name::FqFnName,
@@ -22,9 +23,13 @@ impl Value {
         let binding: &mut Option<T> = self.0.downcast_mut().unwrap();
         binding.take().unwrap()
     }
+    pub fn as_ref<T: 'static>(&self) -> &T {
+        let binding: &Option<T> = self.0.downcast_ref().unwrap();
+        binding.as_ref().unwrap()
+    }
     pub fn as_mut_ref<T: 'static>(&mut self) -> &mut T {
-        let env: &mut Option<T> = self.0.downcast_mut().unwrap();
-        env.as_mut().unwrap()
+        let binding: &mut Option<T> = self.0.downcast_mut().unwrap();
+        binding.as_mut().unwrap()
     }
     pub fn clone_as<T: Clone + 'static>(&self) -> Self {
         let binding: &Option<T> = self.0.downcast_ref().unwrap();
@@ -245,13 +250,38 @@ impl EnvFns {
 }
 
 #[derive(Debug)]
+pub enum CloneFn {
+    Sync(fn(&Value) -> Value),
+    Async(for<'a> fn(&'a Value) -> Pin<Box<dyn Future<Output = Value> + 'a>>),
+}
+
+impl CloneFn {
+    pub const fn new_sync<T: Clone + 'static>() -> Self {
+        Self::Sync(|current| Value::new(current.as_ref::<T>().clone()))
+    }
+
+    pub const fn new_async<T: CloneAsync + 'static>() -> Self {
+        Self::Async(|current| {
+            Box::pin(async { Value::new(T::clone_async(current.as_ref::<T>()).await) })
+        })
+    }
+
+    pub async fn invoke(&self, current: &Value) -> Value {
+        match self {
+            CloneFn::Sync(f) => f(current),
+            CloneFn::Async(f) => f(current).await,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct CloneFns {
-    pub state: fn(&Value) -> Value,
-    pub env: fn(&Value) -> Value,
+    pub state: CloneFn,
+    pub env: CloneFn,
 }
 
 impl CloneFns {
-    pub const fn from_sync<P, E, A, StateOut>(
+    pub const fn from_sync_clone_sync<P, E, A, StateOut>(
         _test_fn: fn(TestReport, Given<P>, Env<'_, E>, Param<A>) -> StateOut,
     ) -> CloneFns
     where
@@ -261,12 +291,12 @@ impl CloneFns {
         A: Parameter,
     {
         CloneFns {
-            state: |outcome| outcome.clone_as::<StateOut>(),
-            env: |current| current.clone_as::<E>(),
+            state: CloneFn::new_sync::<StateOut>(),
+            env: CloneFn::new_sync::<E>(),
         }
     }
 
-    pub const fn from_async<'a, P, E, A, StateOut, Fut>(
+    pub const fn from_async_clone_sync<'a, P, E, A, StateOut, Fut>(
         _test_fn: fn(TestReport, Given<P>, Env<'a, E>, Param<A>) -> Fut,
     ) -> CloneFns
     where
@@ -277,8 +307,24 @@ impl CloneFns {
         A: Parameter,
     {
         CloneFns {
-            state: |outcome| outcome.clone_as::<StateOut>(),
-            env: |current| current.clone_as::<E>(),
+            state: CloneFn::new_sync::<StateOut>(),
+            env: CloneFn::new_sync::<E>(),
+        }
+    }
+
+    pub const fn from_async_clone_async<'a, P, E, A, StateOut, Fut>(
+        _test_fn: fn(TestReport, Given<P>, Env<'a, E>, Param<A>) -> Fut,
+    ) -> CloneFns
+    where
+        StateOut: CloneAsync + Send + 'static,
+        Fut: Future<Output = StateOut> + 'a,
+        P: ParentTest,
+        E: Environment + CloneAsync + 'static,
+        A: Parameter,
+    {
+        CloneFns {
+            state: CloneFn::new_async::<StateOut>(),
+            env: CloneFn::new_async::<E>(),
         }
     }
 }
