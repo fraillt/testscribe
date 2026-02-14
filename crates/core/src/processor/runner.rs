@@ -339,18 +339,18 @@ pub mod tests {
             TestCaseBuilder::new("xxx2_2").depends_on("xxx2").build(),
         ];
         let mut trees = create_test_trees(CASES);
-        for tree in trees.values() {
+        for tree in &trees {
             tree.verify(false).unwrap();
         }
         let mut logger = LogActions::default();
         block_on(TestsRunner::run_tests(
-            &trees.pop_first().unwrap().1,
+            &trees.remove(0),
             &NoFilter,
             &mut logger,
         ));
 
         block_on(TestsRunner::run_tests(
-            &trees.pop_first().unwrap().1,
+            &trees.remove(0),
             &NoFilter,
             &mut logger,
         ));
@@ -386,12 +386,12 @@ pub mod tests {
             TestCaseBuilder::new("xxx2_2").depends_on("xxx2").build(),
         ];
         let mut trees = create_test_trees(CASES);
-        for tree in trees.values() {
+        for tree in &trees {
             tree.verify(false).unwrap();
         }
         let mut logger = LogActions::default();
         block_on(TestsRunner::run_tests(
-            &trees.pop_first().unwrap().1,
+            &trees.remove(0),
             &NoFilter,
             &mut logger,
         ));
@@ -412,7 +412,7 @@ pub mod tests {
         );
         let mut logger = LogActions::default();
         block_on(TestsRunner::run_tests(
-            &trees.pop_first().unwrap().1,
+            &trees.remove(0),
             &NoFilter,
             &mut logger,
         ));

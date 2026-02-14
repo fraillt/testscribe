@@ -33,9 +33,12 @@ pub fn run_sync(
     test_name: &'static str,
 ) -> Result<(), String> {
     let mut trees = create_test_trees(test_cases);
-    let tree = trees
-        .remove(&FqFnName::new(module_path, test_name))
-        .unwrap();
+    let tree_name = &FqFnName::new(module_path, test_name);
+    let tree = trees.swap_remove(
+        trees
+            .binary_search_by(|tree| tree.node.name.cmp(tree_name))
+            .unwrap(),
+    );
     tree.verify(false).map_err(|err| err.to_string())?;
 
     let args = Arguments::from_args();
@@ -70,9 +73,12 @@ pub async fn run_async(
     test_name: &'static str,
 ) -> Result<(), String> {
     let mut trees = create_test_trees(test_cases);
-    let tree = trees
-        .remove(&FqFnName::new(module_path, test_name))
-        .unwrap();
+    let tree_name = &FqFnName::new(module_path, test_name);
+    let tree = trees.swap_remove(
+        trees
+            .binary_search_by(|tree| tree.node.name.cmp(tree_name))
+            .unwrap(),
+    );
     tree.verify(true).map_err(|err| err.to_string())?;
 
     let args = Arguments::from_args();
@@ -108,10 +114,10 @@ pub fn run_all_sync(
     let trees = filter_test_trees(create_test_trees(test_cases), |test| {
         filter_out_test(test, &args)
     });
-    trees.values().try_for_each(|tree| tree.verify(false))?;
+    trees.iter().try_for_each(|tree| tree.verify(false))?;
 
     if args.list {
-        for tree in trees.values() {
+        for tree in &trees {
             print_list(&tree, args.ignored, 0);
         }
         return Ok(ExecutionSummary::default());
@@ -136,7 +142,7 @@ pub fn run_all_sync(
         };
 
         let mut printer = TestFormatter::new(output);
-        for tree in trees.into_values() {
+        for tree in trees {
             let tree_summary = block_on(run_test_tree(tree, &filter, &mut printer, true));
             summary.extend(&tree_summary);
 
@@ -160,7 +166,7 @@ pub fn run_all_sync(
                 scope.spawn(|| {
                     loop {
                         // Get next test to process from the iterator.
-                        let Some((_, tree)) = iter.lock().unwrap().next() else {
+                        let Some(tree) = iter.lock().unwrap().next() else {
                             break;
                         };
 

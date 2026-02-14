@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use serde::Serialize;
 use thiserror::Error;
@@ -97,7 +97,7 @@ impl TestsTree {
         Ok(())
     }
 
-    fn assign_childs(&mut self, childs: &mut BTreeMap<FqFnName, Vec<&'static TestCase>>) {
+    fn assign_childs(&mut self, childs: &mut HashMap<FqFnName, Vec<&'static TestCase>>) {
         if let Some((_fq, list)) = childs.remove_entry(&self.node.name) {
             for child in list {
                 let mut dag = TestsTree {
@@ -111,37 +111,27 @@ impl TestsTree {
     }
 }
 
-pub fn create_test_trees(
-    test_cases: &'static [TestCase],
-) -> BTreeMap<FqFnName<'static>, TestsTree> {
-    let mut roots = BTreeMap::new();
-    let mut childs: BTreeMap<FqFnName<'static>, Vec<&'static TestCase>> = BTreeMap::new();
-
+pub fn create_test_trees(test_cases: &'static [TestCase]) -> Vec<TestsTree> {
     let mut sorted: Vec<_> = test_cases.iter().collect();
     sorted.sort_unstable_by(|a, b| (a.parent.is_some(), a.name).cmp(&(b.parent.is_some(), b.name)));
-
-    // let part_index = sorted.partition_point(|a| a.parent.is_some());
-    // let (roots, childs) = sorted.split_at(part_index);
-    // let mut roots: BTreeMap<_, _> = roots.into_iter().map(|t| (t.name, TestsTree {
-    //     node: t, childs: Default::default()
-    // }))
-    // .collect();
-
-    for t in sorted {
-        if let Some(parent) = t.parent.as_ref() {
-            childs.entry((parent.get_name)()).or_default().push(t);
-        } else {
-            roots.insert(
-                t.name,
-                TestsTree {
-                    node: t,
-                    childs: vec![],
-                },
-            );
-        }
+    let part_index = sorted.partition_point(|a| a.parent.is_none());
+    let (roots_list, childs_list) = sorted.split_at(part_index);
+    let mut childs: HashMap<FqFnName<'static>, Vec<&'static TestCase>> = HashMap::new();
+    for child in childs_list {
+        childs
+            .entry((child.parent.as_ref().unwrap().get_name)())
+            .or_default()
+            .push(child);
     }
+    let mut roots = roots_list
+        .into_iter()
+        .map(|node| TestsTree {
+            node,
+            childs: Default::default(),
+        })
+        .collect::<Vec<_>>();
 
-    for tree in &mut roots.values_mut() {
+    for tree in &mut roots {
         tree.assign_childs(&mut childs);
     }
     roots
@@ -152,25 +142,23 @@ pub fn create_test_trees(
 /// ensuring the full test hierarchy remains intact.
 /// `filter_out_fn` should return true for tests to be filtered out.
 pub fn filter_test_trees(
-    trees: BTreeMap<FqFnName<'static>, TestsTree>,
+    trees: Vec<TestsTree>,
     filter_out_fn: impl Fn(&'static TestCase) -> bool,
-) -> BTreeMap<FqFnName<'static>, TestsTree> {
+) -> Vec<TestsTree> {
     let mut tests = HashMap::new();
 
-    for tree in trees.values() {
+    for tree in &trees {
         build_filter_info(tree, None, &filter_out_fn, &mut tests);
     }
 
     // unfilter parents of non-filtered tests
-    for tree in trees.values() {
+    for tree in &trees {
         unfilter_parents(tree, &mut tests);
     }
 
     trees
         .into_iter()
-        .filter_map(|(name, tree)| {
-            remove_filtered_tests(&tree, &tests).map(|new_tree| (name, new_tree))
-        })
+        .filter_map(|tree| remove_filtered_tests(&tree, &tests))
         .collect()
 }
 

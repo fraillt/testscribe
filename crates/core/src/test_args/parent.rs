@@ -12,6 +12,15 @@ pub struct Given<P>(pub P::Value)
 where
     P: ParentTest;
 
+impl<P> Given<P>
+where
+    P: ParentTest,
+{
+    pub fn into_inner(self) -> P::Value {
+        self.0
+    }
+}
+
 impl<P> Deref for Given<P>
 where
     P: ParentTest,

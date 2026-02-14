@@ -1,5 +1,4 @@
 mod utils;
-use testscribe::report::basic::{CheckAsyncRun, CheckRun};
 use testscribe::test_args::Given;
 use testscribe::tests_tree::BuildTreeError;
 use testscribe::{CASES, testscribe};
@@ -8,12 +7,12 @@ use utils::tree::create_and_verify_tt;
 
 #[testscribe]
 fn not_async() {
-    then!("boo").run(|| {});
+    then!("");
 }
 
 #[testscribe]
 async fn xxx(_: Given<NotAsync>) {
-    then!("boo").run_async(|| async {}).await;
+    then!("");
 }
 
 #[test]
