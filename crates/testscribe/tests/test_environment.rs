@@ -49,16 +49,6 @@ fn depends_on_updated_env(given: Given<SetEnvTo10>, e: Env<Initial>) {
     then!(e.value => env).eq(10);
 }
 
-#[testscribe]
-fn bar(_: Given<SetEnvTo10>, _: Env<Initial>) {
-    then!("");
-}
-
-#[testscribe]
-fn foo(_: Given<SetEnvTo10>) {
-    then!("");
-}
-
 #[testscribe(standalone)]
 #[test]
 fn set_env_to_10(mut e: Env<Initial>) -> bool {

@@ -35,7 +35,7 @@ impl<T> CheckEq<T> for VerifyValue<'_, T> {
     {
         let this = VerifyValueExposed::new(self);
         this.reporter.set_outcome(
-            format!("{} equals to {:?}", this.var_name, rhs),
+            format!("{} is equal to {:?}", this.var_name, rhs),
             if this.actual_value.eq(&rhs) {
                 VerifyOutcome::Success
             } else {
@@ -53,7 +53,7 @@ impl<T> CheckEq<T> for VerifyValue<'_, T> {
     {
         let this = VerifyValueExposed::new(self);
         this.reporter.set_outcome(
-            format!("`{}` not equals to `{:?}`", this.var_name, rhs),
+            format!("{} is not equal to {:?}", this.var_name, rhs),
             if this.actual_value.ne(&rhs) {
                 VerifyOutcome::Success
             } else {

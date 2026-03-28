@@ -1,3 +1,6 @@
+// For demonstration purposes some test function doesn't have assertions, so we suppress the unused macro warning.
+#![allow(unused_macros)]
+
 use testscribe::{
     clone_async::CloneAsync,
     report::basic::CheckEq,
@@ -35,7 +38,6 @@ impl Environment for SomeState {
 #[testscribe(standalone, cloneable_async)]
 #[tokio::test]
 async fn async_test_is_cloneable_async(_: Env<'_, SomeState>) -> SomeState {
-    then!("");
     SomeState::Created
 }
 
@@ -63,7 +65,6 @@ mod clone_async {
 #[testscribe(standalone, cloneable)]
 #[tokio::test]
 async fn async_test_is_cloneable(_: Env<'_, SomeState>) -> SomeState {
-    then!("");
     SomeState::Created
 }
 

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE products p\n             SET available_stock = p.available_stock + oi.quantity\n             FROM order_items oi\n             WHERE oi.order_id = $1 AND p.id = oi.product_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9ba6fce2c24da20ff25f6dfae45389641978a23b1705d7f42bb4e89994379216"
+}

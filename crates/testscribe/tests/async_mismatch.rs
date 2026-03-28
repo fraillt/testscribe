@@ -6,14 +6,12 @@ use utils::create_fq_name;
 use utils::tree::create_and_verify_tt;
 
 #[testscribe]
-fn not_async() {
-    then!("");
-}
+#[allow(unused_macros)]
+fn not_async() {}
 
 #[testscribe]
-async fn xxx(_: Given<NotAsync>) {
-    then!("");
-}
+#[allow(unused_macros)]
+async fn xxx(_: Given<NotAsync>) {}
 
 #[test]
 fn async_test_must_run_in_async_context() {

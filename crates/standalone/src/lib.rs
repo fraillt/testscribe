@@ -157,8 +157,8 @@ pub fn run_all_sync(
         // libtest_mimic::run(args, tests)
 
         let (sender, receiver) = std::sync::mpsc::channel();
-
-        let num_threads = num_threads.min(trees.len());
+        let num_roots = trees.len();
+        let num_threads = num_threads.min(num_roots);
         let iter = Mutex::new(trees.into_iter());
         std::thread::scope(|scope| {
             // Start worker threads
@@ -181,7 +181,8 @@ pub fn run_all_sync(
         });
 
         let mut summary = ExecutionSummary::default();
-        while let Ok((test_summary, vecout)) = receiver.recv() {
+        let mut iter = receiver.try_iter().take(num_roots);
+        while let Some((test_summary, vecout)) = iter.next() {
             summary.extend(&test_summary);
             print!("{}", String::from_utf8(vecout).unwrap());
         }

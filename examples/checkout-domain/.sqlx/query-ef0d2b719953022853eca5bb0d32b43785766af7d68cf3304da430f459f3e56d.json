@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                ci.product_id as \"product_id!\",\n                ci.quantity as \"quantity!\",\n                ci.unit_price_cents as \"unit_price_cents!\",\n                p.available_stock as \"available_stock!\"\n             FROM cart_items ci\n             JOIN products p ON p.id = ci.product_id\n             WHERE ci.cart_id = $1\n             FOR UPDATE OF p",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "product_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "quantity!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "unit_price_cents!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "available_stock!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ef0d2b719953022853eca5bb0d32b43785766af7d68cf3304da430f459f3e56d"
+}

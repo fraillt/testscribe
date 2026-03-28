@@ -27,10 +27,9 @@ impl Environment for EnvRoot {
     }
 }
 
+#[allow(unused_macros)]
 #[testscribe]
-fn root_test(_: Env<EnvRoot>) {
-    then!("");
-}
+fn root_test(_: Env<EnvRoot>) {}
 
 #[test]
 fn boo() {

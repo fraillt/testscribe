@@ -10,6 +10,7 @@ pub struct VerifyValue<'a, T> {
 }
 
 impl<'a, T> VerifyValue<'a, T> {
+    #[must_use = "VerifyValue must be used to report the check outcome"]
     pub fn new(
         report: &'a mut TestReport,
         actual_value: &'a T,
@@ -54,6 +55,7 @@ pub struct VerifyStatement<'a, const ASYNC: bool> {
 }
 
 impl<'a, const ASYNC: bool> VerifyStatement<'a, ASYNC> {
+    #[must_use = "VerifyStatement must be used to report the check outcome"]
     pub fn new(
         report: &'a mut TestReport,
         message: &'static str,

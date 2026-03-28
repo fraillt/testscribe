@@ -28,14 +28,12 @@ impl Environment for EnvNext {
 }
 
 #[testscribe]
-fn root_test(_: Env<EnvRoot>) {
-    then!("");
-}
+#[allow(unused_macros)]
+fn root_test(_: Env<EnvRoot>) {}
 
 #[testscribe]
-fn next_test(_: Given<RootTest>, _: Env<EnvNext>) {
-    then!("");
-}
+#[allow(unused_macros)]
+fn next_test(_: Given<RootTest>, _: Env<EnvNext>) {}
 
 #[test]
 fn boo() {

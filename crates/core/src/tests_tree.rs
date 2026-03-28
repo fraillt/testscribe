@@ -113,9 +113,14 @@ impl TestsTree {
 
 pub fn create_test_trees(test_cases: &'static [TestCase]) -> Vec<TestsTree> {
     let mut sorted: Vec<_> = test_cases.iter().collect();
-    sorted.sort_unstable_by(|a, b| (a.parent.is_some(), a.name).cmp(&(b.parent.is_some(), b.name)));
+    sorted.sort_unstable_by(|a, b| a.parent.is_some().cmp(&b.parent.is_some()));
     let part_index = sorted.partition_point(|a| a.parent.is_none());
-    let (roots_list, childs_list) = sorted.split_at(part_index);
+    let (roots_list, childs_list) = sorted.split_at_mut(part_index);
+    // roots are sorted by name to ensure deterministic order of root tests,
+    roots_list.sort_unstable_by_key(|a| a.name);
+    // childs are sorted by order they are defined, to for easier development experience, but also to control what outcome of test tree
+    // e.g. cover most important cases first
+    childs_list.sort_unstable_by(|a, b| (a.filename, a.line_nr).cmp(&(b.filename, b.line_nr)));
     let mut childs: HashMap<FqFnName<'static>, Vec<&'static TestCase>> = HashMap::new();
     for child in childs_list {
         childs

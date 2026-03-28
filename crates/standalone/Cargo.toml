@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 backtrace = { version = "0.3", features = ["serde"] }
-clap = "4.5.57"
+clap = "4"
 colored = "3"
 futures = "0.3"
 libtest-mimic = "0.8"

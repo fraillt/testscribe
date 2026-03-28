@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notifications (id, customer_id, order_id, notification_type, payload)\n             VALUES ($1, $2, $3, $4, '{}'::jsonb)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bed03491345b6801b01846091b667f9dcc2c6e224d4d182fbaaef01baf85d504"
+}
