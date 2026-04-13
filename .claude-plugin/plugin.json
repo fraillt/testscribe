@@ -1,0 +1,9 @@
+{
+  "name": "testscribe",
+  "description": "Write idiomatic tests with the testscribe Rust test framework: test trees, the SHAPE loop, and readable Given/When/Then output.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Mindaugas Vinkelis",
+    "email": "fraillt@gmail.com"
+  }
+}

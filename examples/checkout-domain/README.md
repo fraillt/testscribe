@@ -88,11 +88,3 @@ And modify connection to PostgreSQL
 cargo sqlx database reset
 cargo sqlx prepare
 ```
-
-### Testing
-
-Tests are written using `testscribe` test framework with database runtime provided by `testcontainers-modules` crate
-
-- one logical action per test
-- parent/child state reuse through test trees
-- clear verification output for state transitions and side effects

@@ -3,19 +3,22 @@ use std::time::Instant;
 use super::run_state::RunState;
 use crate::processor::filter::Filter;
 use crate::processor::logger::{Logger, ParamInfo, TestRunInfo};
-use crate::test_case::{TestCase, TestParams, Value};
-use crate::tests_tree::TestsTree;
+use crate::test_case::{FqFnName, TestParams, Value};
+use crate::tests_tree::{AugmentedTestsTree, TestsTree};
 
 pub struct TestsRunner {}
 
 impl TestsRunner {
     pub async fn run_tests(tree: &TestsTree, filter: &dyn Filter, logger: &mut dyn Logger) {
-        let tree: TestsTreeWithState = TestsTreeWithState::new(tree.clone());
+        let tree = AugmentedTestsTree::new(tree, |node| {
+            node.params
+                .as_ref()
+                .map(|p| (p.params)())
+                .unwrap_or_else(TestParams::new_empty)
+        });
         let mut state = Vec::new();
-        let mut depth = 0;
-        // tree.process = Some(TestProcess::Process { run_state: RunState::init() });
-        // state.push(tree);
-        state.push(TestState::new(&tree, RunState::init()));
+        let mut state_idx = 0;
+        state.push(TestState::new(vec![], &tree, RunState::init()));
 
         #[derive(Clone, Copy)]
         enum ProgressAction {
@@ -29,24 +32,21 @@ impl TestsRunner {
 
         while !state.is_empty() {
             let exec_state_len = state.len();
-            let (processed, remaining) = state.split_at_mut(depth + 1);
-            let curr = processed.last_mut().unwrap();
+            let curr = &mut state[state_idx];
             if let (ProgressAction::ProcessChain, true) = (action, curr.state.process.is_some()) {
                 let process = curr.state.process.take().unwrap();
                 let new_run = match process {
                     TestProcess::Process { run_state } => {
-                        let (info, param_value) = curr.prepare_test_run(depth);
+                        let (info, param_value) = curr.prepare_test_run();
 
                         curr.state.run_count += 1;
                         run_state
                             .run_test(
                                 filter,
                                 logger,
-                                curr.test.node,
+                                curr.tree.node.test,
                                 started_at,
                                 info,
-                                &curr.test.node.test_fn,
-                                &curr.test.node.env,
                                 param_value,
                             )
                             .await
@@ -54,21 +54,40 @@ impl TestsRunner {
                     TestProcess::AlreadyProcessed { outcome } => outcome,
                 };
 
-                if let Some(clone_fns) = curr.test.node.clone.as_ref() {
-                    if should_clone(curr, remaining) {
-                        curr.state.process = Some(TestProcess::AlreadyProcessed {
-                            outcome: new_run.clone_state(clone_fns).await,
-                        });
+                let child_run = if let Some(clone_fns) = curr.tree.node.test.clone.as_ref() {
+                    let has_continuation = exec_state_len > state_idx + 1
+                        || curr.state.childs_idx < curr.tree.childs.len();
+                    if has_continuation {
+                        let clone = new_run.clone_state(clone_fns).await;
+                        curr.state.process =
+                            Some(TestProcess::AlreadyProcessed { outcome: new_run });
+                        Some(clone)
+                    } else {
+                        None
                     }
-                }
+                } else {
+                    Some(new_run)
+                };
 
-                if exec_state_len > depth + 1 {
-                    depth += 1;
-                    state[depth].state.process = Some(TestProcess::Process { run_state: new_run });
-                } else if curr.state.childs_idx < curr.test.childs.len() {
-                    let next = &curr.test.childs[curr.state.childs_idx];
-                    depth += 1;
-                    state.push(TestState::new(next, new_run));
+                if exec_state_len > state_idx + 1 {
+                    state_idx += 1;
+                    state[state_idx].state.process = Some(TestProcess::Process {
+                        run_state: child_run.expect("a continuation exists"),
+                    });
+                } else if curr.state.childs_idx < curr.tree.childs.len() {
+                    let next = &curr.tree.childs[curr.state.childs_idx];
+                    state_idx += 1;
+                    let path = curr
+                        .path
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(curr.tree.node.test.name))
+                        .collect();
+                    state.push(TestState::new(
+                        path,
+                        next,
+                        child_run.expect("a continuation exists"),
+                    ));
                 } else {
                     action = ProgressAction::FindBranch;
                 }
@@ -77,14 +96,14 @@ impl TestsRunner {
                     curr.advance();
                     if !curr.is_processed() {
                         action = ProgressAction::ProcessChain;
-                        depth += 1;
+                        state_idx += 1;
                     } else {
                         state.pop();
                     }
                 }
 
-                if depth > 0 {
-                    depth -= 1;
+                if state_idx > 0 {
+                    state_idx -= 1;
                 } else if !state.is_empty() {
                     let root = &mut state[0];
                     root.state.process = Some(TestProcess::Process {
@@ -101,27 +120,6 @@ enum TestProcess {
     AlreadyProcessed { outcome: RunState },
 }
 
-struct TestsTreeWithState {
-    node: &'static TestCase,
-    params: TestParams,
-    childs: Vec<TestsTreeWithState>,
-}
-
-impl TestsTreeWithState {
-    fn new(tree: TestsTree) -> Self {
-        TestsTreeWithState {
-            node: tree.node,
-            params: tree
-                .node
-                .params
-                .as_ref()
-                .map(|p| (p.params)())
-                .unwrap_or_else(|| TestParams::new_empty()),
-            childs: tree.childs.into_iter().map(Self::new).collect(),
-        }
-    }
-}
-
 struct State {
     process: Option<TestProcess>,
     args_idx: usize,
@@ -130,14 +128,20 @@ struct State {
 }
 
 struct TestState<'a> {
-    test: &'a TestsTreeWithState,
+    tree: &'a AugmentedTestsTree<TestParams>,
     state: State,
+    path: Vec<FqFnName<'static>>,
 }
 
 impl<'a> TestState<'a> {
-    fn new(test: &'a TestsTreeWithState, run_state: RunState) -> Self {
+    fn new(
+        path: Vec<FqFnName<'static>>,
+        tree: &'a AugmentedTestsTree<TestParams>,
+        run_state: RunState,
+    ) -> Self {
         Self {
-            test,
+            tree,
+            path,
             state: State {
                 process: Some(TestProcess::Process { run_state }),
                 args_idx: 0,
@@ -147,9 +151,9 @@ impl<'a> TestState<'a> {
         }
     }
 
-    fn prepare_test_run(&self, depth: usize) -> (TestRunInfo, Option<Value>) {
-        let (param_info, param_value) = if self.state.args_idx < self.test.params.len() {
-            let arg = self.test.params.get(self.state.args_idx);
+    fn prepare_test_run(&self) -> (TestRunInfo, Option<Value>) {
+        let (param_info, param_value) = if self.state.args_idx < self.tree.node.extra.len() {
+            let arg = self.tree.node.extra.get(self.state.args_idx);
             (
                 Some(ParamInfo {
                     headers: arg.header,
@@ -160,10 +164,9 @@ impl<'a> TestState<'a> {
         } else {
             (None, None)
         };
-
         (
             TestRunInfo {
-                depth,
+                path: self.path.clone(),
                 run_count: self.state.run_count,
                 param_info,
             },
@@ -172,70 +175,30 @@ impl<'a> TestState<'a> {
     }
 
     fn is_processed(&self) -> bool {
-        self.test.childs.len() == self.state.childs_idx
-            && self.test.params.len() == self.state.args_idx
+        self.tree.childs.len() == self.state.childs_idx
+            && self.tree.node.extra.len() == self.state.args_idx
     }
 
     fn advance(&mut self) {
-        if self.state.childs_idx < self.test.childs.len() {
+        if self.state.childs_idx < self.tree.childs.len() {
             self.state.childs_idx += 1;
-            if self.state.childs_idx == self.test.childs.len()
-                && self.state.args_idx < self.test.params.len()
+            if self.state.childs_idx == self.tree.childs.len()
+                && self.state.args_idx < self.tree.node.extra.len()
             {
                 self.state.args_idx += 1;
                 self.state.run_count = 0;
                 self.state.process = None;
-                if self.state.args_idx < self.test.params.len() {
+                if self.state.args_idx < self.tree.node.extra.len() {
                     self.state.childs_idx = 0;
                 }
             }
-        } else if self.state.args_idx < self.test.params.len() {
+        } else if self.state.args_idx < self.tree.node.extra.len() {
             self.state.args_idx += 1;
             self.state.run_count = 0;
             self.state.process = None;
             self.state.childs_idx = 0;
         }
     }
-}
-
-fn should_clone(curr: &TestState, in_progress: &[TestState]) -> bool {
-    // for current test we only care if it has more childs
-    if curr.state.childs_idx + 1 < curr.test.childs.len() {
-        return true;
-    }
-
-    // for in progress tests additionally check for arguments
-    // NOTE: cloneable tests cannot be in this list
-    for next in in_progress {
-        if next.state.childs_idx + 1 < next.test.childs.len() {
-            return true;
-        }
-        if next.state.args_idx + 1 < next.test.params.len() {
-            return true;
-        }
-    }
-
-    let remaining = in_progress
-        .last()
-        .map(|t| t.test.childs.split_at(t.state.childs_idx).1)
-        .unwrap_or_else(|| curr.test.childs.split_at(curr.state.childs_idx).1);
-    should_clone_recursive(remaining)
-}
-
-fn should_clone_recursive(childs: &[TestsTreeWithState]) -> bool {
-    for c in childs {
-        if c.node.clone.is_none() {
-            if c.childs.len() > 1 {
-                return true;
-            }
-        } else if c.params.len() > 1 {
-            return true;
-        }
-        if should_clone_recursive(&c.childs) {
-            return true;
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -248,12 +211,17 @@ pub mod tests {
     use super::*;
     use crate::processor::filter::NoFilter;
     use crate::processor::logger::TestStatusUpdate;
-    use crate::test_case::{CloneFn, CloneFns, FqFnName, TestCase, TestFn};
+    use crate::test_args::ParamDisplay;
+    use crate::test_case::{
+        CloneFn, CloneFns, FqFnName, ParamsFn, ParentFn, TestCase, TestFn, TestParams,
+    };
     use crate::tests_tree::create_test_trees;
 
     struct TestCaseBuilder {
         fn_name: FqFnName<'static>,
         is_cloneable: bool,
+        parent: Option<ParentFn>,
+        params: Option<fn() -> TestParams>,
     }
 
     impl TestCaseBuilder {
@@ -261,6 +229,8 @@ pub mod tests {
             Self {
                 fn_name: FqFnName::new("", fn_name),
                 is_cloneable: false,
+                parent: None,
+                params: None,
             }
         }
 
@@ -269,21 +239,26 @@ pub mod tests {
             self
         }
 
-        const fn depends_on(self, _path_with_name: &'static str) -> Self {
-            // TODO implement, but probably not possible...
-            // we should probably write integration tests instead
+        const fn depends_on(mut self, get_name: fn() -> FqFnName<'static>) -> Self {
+            self.parent = Some(ParentFn { get_name });
             self
         }
-        const fn build(self) -> TestCase {
+
+        const fn with_params(mut self, params: fn() -> TestParams) -> Self {
+            self.params = Some(params);
+            self
+        }
+
+        fn build(self) -> TestCase {
             TestCase {
                 name: self.fn_name,
                 tags: &[],
                 filename: "",
                 line_nr: 0,
                 test_fn: TestFn::SyncFn(|_, v, _e, _p| v),
-                parent: None,
+                parent: self.parent,
                 env: None,
-                params: None,
+                params: self.params.map(|params| ParamsFn { params }),
                 clone: if self.is_cloneable {
                     Some(CloneFns {
                         state: CloneFn::new_sync::<()>(),
@@ -296,252 +271,195 @@ pub mod tests {
         }
     }
 
+    fn action(path: &'static str, run_count: usize) -> TestRunInfo {
+        TestRunInfo {
+            path: path
+                .split(".")
+                .map(|name| FqFnName::new("", name))
+                .collect(),
+            run_count,
+            param_info: None,
+        }
+    }
+
+    fn action_with_param(path: &'static str, run_count: usize, param: &str) -> TestRunInfo {
+        TestRunInfo {
+            path: path
+                .split(".")
+                .map(|name| FqFnName::new("", name))
+                .collect(),
+            run_count,
+            param_info: Some(ParamInfo {
+                headers: vec!["name"],
+                display_str: vec![param.to_string()],
+            }),
+        }
+    }
+
+    fn assert_tree(cases: Vec<TestCaseBuilder>, expected_runs: Vec<TestRunInfo>) {
+        let cases = cases
+            .into_iter()
+            .map(TestCaseBuilder::build)
+            .collect::<Vec<_>>();
+        let leaked: &'static [TestCase] = Box::leak(cases.into_boxed_slice());
+        let mut trees = create_test_trees(leaked).into_iter();
+        let tree = trees.next().unwrap();
+        assert!(trees.next().is_none());
+        tree.verify(false).unwrap();
+
+        let mut logger = LogActions::default();
+        block_on(TestsRunner::run_tests(&tree, &NoFilter, &mut logger));
+        assert_eq!(logger.actions.len(), expected_runs.len(), "number of runs");
+
+        for (index, (actual, expected)) in logger.actions.into_iter().zip(expected_runs).enumerate()
+        {
+            assert_eq!(actual.path, expected.path, "run index: {index}");
+            assert_eq!(actual.run_count, expected.run_count, "run index: {index}");
+            assert_eq!(
+                actual.param_info.is_some(),
+                expected.param_info.is_some(),
+                "run index: {index}"
+            );
+            if let Some((a, e)) = actual.param_info.as_ref().zip(expected.param_info.as_ref()) {
+                assert_eq!(a.headers, e.headers, "run index: {index}");
+                assert_eq!(a.display_str, e.display_str, "run index: {index}");
+            }
+        }
+    }
+
     #[derive(Default)]
     struct LogActions {
-        actions: Vec<(&'static str, usize, usize)>,
+        actions: Vec<TestRunInfo>,
     }
 
     impl Logger for LogActions {
         fn log(&mut self, test: &'static TestCase, update: TestStatusUpdate, _elapsed: Duration) {
-            if let TestStatusUpdate::Started { info } = update {
-                self.actions
-                    .push((test.name.name, info.depth, info.run_count));
+            if let TestStatusUpdate::Started { mut info } = update {
+                info.path.push(test.name);
+                self.actions.push(info);
             }
         }
     }
 
     #[test]
-    fn test_new_visitor() {
-        // boo  -> xxx(c)   -> xxx1     -> xxx1_1
-        //                              -> xxx1_2
-        //                  -> xxx2(c)  -> xxx2_1
-        //                              -> xxx2_2
-        // foo  -> yyy  -> yyy1
-        //              -> yyy2
-        static CASES: &[TestCase] = &[
-            TestCaseBuilder::new("boo").build(),
-            TestCaseBuilder::new("foo").build(),
-            TestCaseBuilder::new("xxx")
-                .depends_on("boo")
-                .set_cloneable()
-                .build(),
-            TestCaseBuilder::new("yyy").depends_on("foo").build(),
-            TestCaseBuilder::new("xxx1").depends_on("xxx").build(),
-            TestCaseBuilder::new("xxx2")
-                .depends_on("xxx")
-                .set_cloneable()
-                .build(),
-            TestCaseBuilder::new("yyy1").depends_on("yyy").build(),
-            TestCaseBuilder::new("yyy2").depends_on("yyy").build(),
-            TestCaseBuilder::new("xxx1_1").depends_on("xxx1").build(),
-            TestCaseBuilder::new("xxx1_2").depends_on("xxx1").build(),
-            TestCaseBuilder::new("xxx2_1").depends_on("xxx2").build(),
-            TestCaseBuilder::new("xxx2_2").depends_on("xxx2").build(),
-        ];
-        let mut trees = create_test_trees(CASES);
-        for tree in &trees {
-            tree.verify(false).unwrap();
-        }
-        let mut logger = LogActions::default();
-        block_on(TestsRunner::run_tests(
-            &trees.remove(0),
-            &NoFilter,
-            &mut logger,
-        ));
-
-        block_on(TestsRunner::run_tests(
-            &trees.remove(0),
-            &NoFilter,
-            &mut logger,
-        ));
+    fn simple_tree() {
+        assert_tree(
+            vec![
+                TestCaseBuilder::new("foo"),
+                TestCaseBuilder::new("yyy").depends_on(|| FqFnName::new("", "foo")),
+                TestCaseBuilder::new("yyy1").depends_on(|| FqFnName::new("", "yyy")),
+                TestCaseBuilder::new("yyy2").depends_on(|| FqFnName::new("", "yyy")),
+            ],
+            vec![
+                action("foo", 0),
+                action("foo.yyy", 0),
+                action("foo.yyy.yyy1", 0),
+                action("foo", 1),
+                action("foo.yyy", 1),
+                action("foo.yyy.yyy2", 0),
+            ],
+        );
     }
 
     #[test]
-    #[ignore = "disable while migrating from DependsOn to proper ParentFn"]
-    fn run_tests_no_params() {
-        // boo  -> xxx(c)   -> xxx1     -> xxx1_1
-        //                              -> xxx1_2
-        //                  -> xxx2(c)  -> xxx2_1
-        //                              -> xxx2_2
-        // foo  -> yyy  -> yyy1
-        //              -> yyy2
-        static CASES: &[TestCase] = &[
-            TestCaseBuilder::new("boo").build(),
-            TestCaseBuilder::new("foo").build(),
-            TestCaseBuilder::new("xxx")
-                .depends_on("boo")
-                .set_cloneable()
-                .build(),
-            TestCaseBuilder::new("yyy").depends_on("foo").build(),
-            TestCaseBuilder::new("xxx1").depends_on("xxx").build(),
-            TestCaseBuilder::new("xxx2")
-                .depends_on("xxx")
-                .set_cloneable()
-                .build(),
-            TestCaseBuilder::new("yyy1").depends_on("yyy").build(),
-            TestCaseBuilder::new("yyy2").depends_on("yyy").build(),
-            TestCaseBuilder::new("xxx1_1").depends_on("xxx1").build(),
-            TestCaseBuilder::new("xxx1_2").depends_on("xxx1").build(),
-            TestCaseBuilder::new("xxx2_1").depends_on("xxx2").build(),
-            TestCaseBuilder::new("xxx2_2").depends_on("xxx2").build(),
-        ];
-        let mut trees = create_test_trees(CASES);
-        for tree in &trees {
-            tree.verify(false).unwrap();
-        }
-        let mut logger = LogActions::default();
-        block_on(TestsRunner::run_tests(
-            &trees.remove(0),
-            &NoFilter,
-            &mut logger,
-        ));
-
-        assert_eq!(
-            logger.actions,
+    fn tree_with_cloneable() {
+        assert_tree(
             vec![
-                ("boo", 0, 0),
-                ("xxx", 1, 0),
-                ("xxx1", 2, 0),
-                ("xxx1_1", 3, 0),
-                ("xxx1", 2, 1),
-                ("xxx1_2", 3, 0),
-                ("xxx2", 2, 0),
-                ("xxx2_1", 3, 0),
-                ("xxx2_2", 3, 0),
-            ]
-        );
-        let mut logger = LogActions::default();
-        block_on(TestsRunner::run_tests(
-            &trees.remove(0),
-            &NoFilter,
-            &mut logger,
-        ));
-        assert_eq!(
-            logger.actions,
+                TestCaseBuilder::new("boo"),
+                TestCaseBuilder::new("xxx")
+                    .depends_on(|| FqFnName::new("", "boo"))
+                    .set_cloneable(),
+                TestCaseBuilder::new("xxx1").depends_on(|| FqFnName::new("", "xxx")),
+                TestCaseBuilder::new("xxx2")
+                    .depends_on(|| FqFnName::new("", "xxx"))
+                    .set_cloneable(),
+                TestCaseBuilder::new("xxx1_1").depends_on(|| FqFnName::new("", "xxx1")),
+                TestCaseBuilder::new("xxx1_2").depends_on(|| FqFnName::new("", "xxx1")),
+                TestCaseBuilder::new("xxx2_1").depends_on(|| FqFnName::new("", "xxx2")),
+                TestCaseBuilder::new("xxx2_2").depends_on(|| FqFnName::new("", "xxx2")),
+            ],
             vec![
-                ("foo", 0, 0),
-                ("yyy", 1, 0),
-                ("yyy1", 2, 0),
-                ("foo", 0, 1),
-                ("yyy", 1, 1),
-                ("yyy2", 2, 0)
-            ]
+                action("boo", 0),
+                action("boo.xxx", 0),
+                action("boo.xxx.xxx1", 0),
+                action("boo.xxx.xxx1.xxx1_1", 0),
+                action("boo.xxx.xxx1", 1),
+                action("boo.xxx.xxx1.xxx1_2", 0),
+                action("boo.xxx.xxx2", 0),
+                action("boo.xxx.xxx2.xxx2_1", 0),
+                action("boo.xxx.xxx2.xxx2_2", 0),
+            ],
         );
     }
 
-    // #[test]
-    // fn run_tests_with_params() {
-    //     // boo  -> xxx(c)   -> xxx1     -> xxx1_1
-    //     //                              -> xxx1_2
-    //     //                  -> xxx2(c)  -> xxx2_1
-    //     //                              -> xxx2_2
-    //     // foo  -> yyy  -> yyy1
-    //     //              -> yyy2
-    //     static CASES: &[TestCase] = &[
-    //         TestCaseBuilder::new("boo").build(),
-    //         TestCaseBuilder::new("foo").build(),
-    //         TestCaseBuilder::new("xxx")
-    //             .depends_on("boo")
-    //             .set_cloneable()
-    //             .build(),
-    //         TestCaseBuilder::new("yyy").depends_on("foo").build(),
-    //         TestCaseBuilder::new("xxx1").depends_on("xxx").build(),
-    //         TestCaseBuilder::new("xxx2")
-    //             .depends_on("xxx")
-    //             .set_cloneable()
-    //             .build(),
-    //         TestCaseBuilder::new("yyy1").depends_on("yyy").build(),
-    //         TestCaseBuilder::new("yyy2").depends_on("yyy").build(),
-    //         TestCaseBuilder::new("xxx1_1").depends_on("xxx1").build(),
-    //         TestCaseBuilder::new("xxx1_2").depends_on("xxx1").build(),
-    //         TestCaseBuilder::new("xxx2_1").depends_on("xxx2").build(),
-    //         TestCaseBuilder::new("xxx2_2").depends_on("xxx2").build(),
-    //     ];
-    //     let mut trees = create_test_trees(CASES).unwrap();
-    //     for tree in trees.values() {
-    //         tree.verify(false).unwrap();
-    //     }
-    //     let mut logger = LogActions::default();
-    //     block_on(TestsVisitor::visit(
-    //         &trees.pop_first().unwrap().1,
-    //         &NoFilter,
-    //         &mut logger,
-    //     ));
+    #[derive(Clone)]
+    struct StringArg(&'static str);
 
-    //     assert_eq!(
-    //         logger.actions,
-    //         vec![
-    //             ("boo", 0, 0),
-    //             ("xxx", 1, 0),
-    //             ("xxx1", 2, 0),
-    //             ("xxx1_1", 3, 0),
-    //             ("xxx1", 2, 1),
-    //             ("xxx1_2", 3, 0),
-    //             ("xxx2", 2, 0),
-    //             ("xxx2_1", 3, 0),
-    //             ("xxx2_2", 3, 0),
-    //         ]
-    //     );
-    //     let mut logger = LogActions::default();
-    //     block_on(TestsVisitor::visit(
-    //         &trees.pop_first().unwrap().1,
-    //         &NoFilter,
-    //         &mut logger,
-    //     ));
-    //     assert_eq!(
-    //         logger.actions,
-    //         vec![
-    //             ("foo", 0, 0),
-    //             ("yyy", 1, 0),
-    //             ("yyy1", 2, 0),
-    //             ("foo", 0, 1),
-    //             ("yyy", 1, 1),
-    //             ("yyy2", 2, 0)
-    //         ]
-    //     );
-    // }
+    impl ParamDisplay for StringArg {
+        const NAMES: &'static [&'static str] = &["name"];
 
-    // #[test]
-    // fn run_tests_with_params_and_cloneable() {
-    //     static CASES: &[TestCase] = &[
-    //         TestCaseBuilder::new("root").build(),
-    //         TestCaseBuilder::new("boo")
-    //             .depends_on("root")
-    //             .set_cloneable()
-    //             .params("p1")
-    //             .build(),
-    //         TestCaseBuilder::new("foo")
-    //             .depends_on("boo")
-    //             .params("p2")
-    //             .build(),
-    //     ];
-    //     static PARAMS: &[TestParams] = &[
-    //         TestParamsBuilder::<2>::new("p1").build(),
-    //         TestParamsBuilder::<2>::new("p2").build(),
-    //     ];
-    //     let mut trees = create_test_trees(CASES, PARAMS).unwrap();
-    //     for tree in trees.values() {
-    //         tree.verify(false).unwrap();
-    //     }
-    //     let mut processor = LogActions::default();
-    //     block_on(TestsVisitor::visit(
-    //         &trees.pop_first().unwrap().1,
-    //         &NoFilter,
-    //         &mut processor,
-    //     ));
+        fn values(&self) -> Vec<String> {
+            vec![self.0.to_string()]
+        }
+    }
 
-    //     assert_eq!(
-    //         processor.actions,
-    //         vec![
-    //             ("root", 1, true),
-    //             ("boo", 2, true),
-    //             ("foo", 3, true),
-    //             ("foo", 3, true),
-    //             ("root", 1, false),
-    //             ("boo", 2, true),
-    //             ("foo", 3, true),
-    //             ("foo", 3, true)
-    //         ]
-    //     );
-    // }
+    #[test]
+    fn tree_with_arguments1() {
+        assert_tree(
+            vec![
+                TestCaseBuilder::new("foo")
+                    .with_params(|| TestParams::new([StringArg("A"), StringArg("B")])),
+                TestCaseBuilder::new("bar").depends_on(|| FqFnName::new("", "foo")),
+            ],
+            vec![
+                action_with_param("foo", 0, "A"),
+                action("foo.bar", 0),
+                action_with_param("foo", 0, "B"),
+                action("foo.bar", 0),
+            ],
+        );
+    }
+
+    #[test]
+    fn tree_with_arguments2() {
+        assert_tree(
+            vec![
+                TestCaseBuilder::new("foo"),
+                TestCaseBuilder::new("bar")
+                    .depends_on(|| FqFnName::new("", "foo"))
+                    .with_params(|| TestParams::new([StringArg("A"), StringArg("B")])),
+            ],
+            vec![
+                action("foo", 0),
+                action_with_param("foo.bar", 0, "A"),
+                action("foo", 1),
+                action_with_param("foo.bar", 0, "B"),
+            ],
+        );
+    }
+
+    #[test]
+    fn tree_with_cloneable_and_arguments1() {
+        assert_tree(
+            vec![
+                TestCaseBuilder::new("foo"),
+                TestCaseBuilder::new("bar")
+                    .depends_on(|| FqFnName::new("", "foo"))
+                    .set_cloneable()
+                    .with_params(|| TestParams::new([StringArg("A"), StringArg("B")])),
+                TestCaseBuilder::new("bar1").depends_on(|| FqFnName::new("", "bar")),
+                TestCaseBuilder::new("bar2").depends_on(|| FqFnName::new("", "bar")),
+            ],
+            vec![
+                action("foo", 0),
+                action_with_param("foo.bar", 0, "A"),
+                action("foo.bar.bar1", 0),
+                action("foo.bar.bar2", 0),
+                action("foo", 1),
+                action_with_param("foo.bar", 0, "B"),
+                action("foo.bar.bar1", 0),
+                action("foo.bar.bar2", 0),
+            ],
+        );
+    }
 }

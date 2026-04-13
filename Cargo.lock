@@ -592,14 +592,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "features-showcase"
-version = "0.1.0"
-dependencies = [
- "testscribe",
- "tokio",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2420,14 +2412,12 @@ dependencies = [
 name = "testscribe"
 version = "0.1.0"
 dependencies = [
- "futures",
  "linkme",
  "testscribe-core",
  "testscribe-detached",
  "testscribe-proc-macros",
  "testscribe-standalone",
  "tokio",
- "trybuild",
 ]
 
 [[package]]
@@ -2461,6 +2451,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "testscribe-self-tests"
+version = "0.1.0"
+dependencies = [
+ "testscribe",
+ "tokio",
+ "trybuild",
 ]
 
 [[package]]

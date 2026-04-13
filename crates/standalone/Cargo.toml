@@ -1,11 +1,13 @@
 [package]
-name = "testscribe-standalone"
-version.workspace = true
-rust-version.workspace = true
+authors.workspace = true
+description = "Default test runner for the testscribe test framework, integrating test trees with the standard test harness"
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
+name = "testscribe-standalone"
+readme = "README.md"
 repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 backtrace = { version = "0.3", features = ["serde"] }
@@ -15,4 +17,3 @@ futures = "0.3"
 libtest-mimic = "0.8"
 serde = { version = "1", features = ["derive"] }
 testscribe-core.workspace = true
-

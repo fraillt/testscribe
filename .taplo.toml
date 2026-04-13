@@ -1,0 +1,4 @@
+exclude = ["target/**"]
+
+[formatting]
+reorder_keys = true

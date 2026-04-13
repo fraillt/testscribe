@@ -26,12 +26,17 @@ use testscribe_core::test_case::{FqFnName, TestCase};
 use testscribe_core::tests_tree::TestsTree;
 
 impl Filter for TestTreeFilter {
-    fn should_run(&self, test: &'static TestCase, info: &TestRunInfo) -> bool {
+    fn should_run(&self, _test: &'static TestCase, info: &TestRunInfo) -> bool {
         match &self {
             TestTreeFilter::RunAll => true,
-            TestTreeFilter::RunPaths { paths } => paths[info.depth]
-                .iter()
-                .any(|t| t.as_fq_fn_name() == test.name),
+            TestTreeFilter::RunPaths { paths } => {
+                for (curr, list) in info.path.iter().zip(paths) {
+                    if !list.iter().any(|i| i.as_fq_fn_name() == *curr) {
+                        return false;
+                    }
+                }
+                paths.len() >= info.path.len()
+            }
         }
     }
 }
@@ -39,7 +44,7 @@ impl Filter for TestTreeFilter {
 impl From<(u64, TestStatusUpdateMsg)> for StatusMsg {
     fn from((tree_id, info): (u64, TestStatusUpdateMsg)) -> Self {
         Self::TestStatus {
-            tree_id: tree_id,
+            tree_id,
             test: info.test,
             update: info.update,
             elapsed: info.elapsed,

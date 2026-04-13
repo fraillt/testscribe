@@ -1,11 +1,13 @@
 [package]
-name = "testscribe-core"
-version.workspace = true
-rust-version.workspace = true
+authors.workspace = true
+description = "Core test tree structure, execution and reporting logic for the testscribe test framework"
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
+name = "testscribe-core"
+readme = "README.md"
 repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 futures = "0.3"
@@ -13,4 +15,9 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = [
+  "rt",
+  "macros",
+  "rt-multi-thread",
+  "time",
+] }

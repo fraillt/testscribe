@@ -49,20 +49,20 @@ impl Frontend for CliFrontend {
                     TestTreeStatusUpdate::Started => {}
                     TestTreeStatusUpdate::Finished => {
                         failures_count += running.remove(&tree_id).unwrap().failed_tests;
-                        if self.concurrency > running.len() {
-                            if let Some((root_test, _)) = trees_iter.next() {
-                                gen_tree_id += 1;
-                                running.insert(gen_tree_id, PrintTestOutcome::new());
-                                command_sender
-                                    .unbounded_send(CommandMsg::RunTestTrees {
-                                        trees: vec![RunTestTree {
-                                            id: gen_tree_id,
-                                            root_test: root_test.into(),
-                                            filter: TestTreeFilter::RunAll,
-                                        }],
-                                    })
-                                    .expect("Backend must be alive");
-                            }
+                        if self.concurrency > running.len()
+                            && let Some((root_test, _)) = trees_iter.next()
+                        {
+                            gen_tree_id += 1;
+                            running.insert(gen_tree_id, PrintTestOutcome::new());
+                            command_sender
+                                .unbounded_send(CommandMsg::RunTestTrees {
+                                    trees: vec![RunTestTree {
+                                        id: gen_tree_id,
+                                        root_test: root_test.into(),
+                                        filter: TestTreeFilter::RunAll,
+                                    }],
+                                })
+                                .expect("Backend must be alive");
                         }
                         if running.is_empty() {
                             if failures_count > 0 {

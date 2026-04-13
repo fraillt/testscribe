@@ -1,16 +1,21 @@
 [package]
-name = "testscribe"
-version.workspace = true
-rust-version.workspace = true
-edition.workspace = true
-license.workspace = true
 authors.workspace = true
+categories = ["development-tools::testing"]
+description = "Testing framework for stateful systems, where tests build on each other's state, forming a test tree with readable Given/When/Then output"
+edition.workspace = true
+keywords = ["testing", "bdd", "test-framework", "given-when-then", "stateful"]
+license.workspace = true
+name = "testscribe"
+readme = "README.md"
 repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
 
 [features]
 default = ["standalone"]
-standalone = ["testscribe-proc-macros/standalone", "dep:testscribe-standalone"]
 detached = ["dep:testscribe-detached"]
+standalone = ["testscribe-proc-macros/standalone", "dep:testscribe-standalone"]
 
 [dependencies]
 linkme = "0.3"
@@ -21,6 +26,22 @@ testscribe-proc-macros.workspace = true
 testscribe-standalone = { workspace = true, optional = true }
 
 [dev-dependencies]
-futures = "0.3"
 tokio = { version = "1", features = ["rt", "macros", "time"] }
-trybuild = "1"
+
+# `custom_test_runner` showcases running tests without the standard libtest harness
+[[test]]
+harness = false
+name = "custom_test_runner"
+
+[package.metadata.docs.rs]
+all-features = true
+
+# cargo-release updates the shared workspace CHANGELOG (../../CHANGELOG.md) exactly
+# once per release, via the main crate so the replacements don't run for every crate.
+# Order matters: rename the Unreleased heading first, then re-seed a fresh one.
+[package.metadata.release]
+pre-release-replacements = [
+  { file = "../../CHANGELOG.md", search = "Unreleased", replace = "{{version}}", min = 1 },
+  { file = "../../CHANGELOG.md", search = "ReleaseDate", replace = "{{date}}", min = 1 },
+  { file = "../../CHANGELOG.md", search = "<!-- next-header -->", replace = "<!-- next-header -->\n\n## [Unreleased] - ReleaseDate", exactly = 1 },
+]

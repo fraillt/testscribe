@@ -7,8 +7,9 @@ use backtrace::BacktraceFrame;
 use colored::Colorize;
 
 use testscribe_core::processor::logger::{
-    Logger, SkipReason, TestRunInfo, TestStatusUpdate, TestUpdate, VerifyOutcome,
+    Logger, SkipReason, TestRunInfo, TestStatusUpdate, TestUpdate,
 };
+use testscribe_core::report::VerifyOutcome;
 use testscribe_core::test_case::{FqFnName, TestCase};
 
 use crate::logger::summary::Failure;
@@ -133,8 +134,8 @@ impl<'a> TestFormatter<'a> {
                 self.out,
                 "?|{: >8}|{}{} {}",
                 format_time(Duration::from_secs(0)),
-                "  ".repeat(info.depth),
-                if info.depth == 0 {
+                "  ".repeat(info.path.len()),
+                if info.path.is_empty() {
                     "Given".yellow()
                 } else {
                     "When".yellow()
@@ -160,8 +161,8 @@ impl<'a> TestFormatter<'a> {
                 "{}|{: >8}|{}{} {}",
                 if panic_message.is_some() { "!" } else { " " },
                 format_time(duration),
-                "  ".repeat(test_info.depth),
-                if test_info.depth == 0 {
+                "  ".repeat(test_info.path.len()),
+                if test_info.path.is_empty() {
                     "Given".yellow()
                 } else {
                     "When".yellow()
@@ -173,7 +174,7 @@ impl<'a> TestFormatter<'a> {
                 writeln!(
                     self.out,
                     " |        |{}{} {}",
-                    "  ".repeat(test_info.depth),
+                    "  ".repeat(test_info.path.len()),
                     "With".yellow(),
                     param
                         .headers
@@ -199,19 +200,17 @@ impl<'a> TestFormatter<'a> {
                             self.out,
                             "{}|       -|  {}{} {}",
                             get_assertion_status(&outcome),
-                            "  ".repeat(test_info.depth),
+                            "  ".repeat(test_info.path.len()),
                             if index == 0 {
                                 if let VerifyOutcome::Success = &outcome {
                                     "Then".yellow()
                                 } else {
                                     "Then".red()
                                 }
+                            } else if let VerifyOutcome::Success = &outcome {
+                                "And".yellow()
                             } else {
-                                if let VerifyOutcome::Success = &outcome {
-                                    "And".yellow()
-                                } else {
-                                    "And".red()
-                                }
+                                "And".red()
                             },
                             if let VerifyOutcome::Success = &outcome {
                                 message.white()
@@ -252,7 +251,7 @@ impl<'a> TestFormatter<'a> {
                         writeln!(
                             self.out,
                             " |       -|  {}{} {}",
-                            "  ".repeat(test_info.depth),
+                            "  ".repeat(test_info.path.len()),
                             if state.index == 0 {
                                 "Then".yellow()
                             } else {
@@ -264,19 +263,17 @@ impl<'a> TestFormatter<'a> {
                         writeln!(
                             self.out,
                             " |       -|  {}|{} |",
-                            "  ".repeat(test_info.depth),
+                            "  ".repeat(test_info.path.len()),
                             header.join(",")
                         )
                         .unwrap();
 
-                        for (_index, (row, outcome)) in
-                            state.rows_fields.iter().zip(state.outcomes).enumerate()
-                        {
+                        for (row, outcome) in state.rows_fields.iter().zip(state.outcomes) {
                             writeln!(
                                 self.out,
                                 "{}|       -|  {}|{} |",
                                 get_assertion_status(&outcome),
-                                "  ".repeat(test_info.depth),
+                                "  ".repeat(test_info.path.len()),
                                 if let VerifyOutcome::Success = &outcome {
                                     row.join(",")
                                 } else {
@@ -309,11 +306,8 @@ struct ParamsState {
 }
 
 // returns formatted header
-fn format_table_header_and_rows(
-    header: &[&'static str],
-    rows: &mut Vec<Vec<String>>,
-) -> Vec<String> {
-    let mut res_header = Vec::from_iter(header.into_iter().map(|h| h.to_string()));
+fn format_table_header_and_rows(header: &[&'static str], rows: &mut [Vec<String>]) -> Vec<String> {
+    let mut res_header = Vec::from_iter(header.iter().map(|h| h.to_string()));
     for (i, h) in res_header.iter_mut().enumerate() {
         let mut max_size = h.len();
         for r in rows.iter_mut() {
@@ -357,7 +351,7 @@ fn make_test_name(name: &str) -> String {
     let mut res = Vec::with_capacity(name.len() + 10);
     res.push(name.as_bytes()[0].to_ascii_lowercase());
     let mut prev_is_digit = false;
-    for b in name.as_bytes().into_iter().skip(1) {
+    for b in name.as_bytes().iter().skip(1) {
         if b.is_ascii_uppercase() || (b.is_ascii_digit() && !prev_is_digit) {
             res.push(b' ');
             res.push(b.to_ascii_lowercase());

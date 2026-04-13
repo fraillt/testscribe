@@ -1,0 +1,20 @@
+[package]
+authors.workspace = true
+description = "Self-tests for the testscribe test framework (not published)"
+edition.workspace = true
+license.workspace = true
+name = "testscribe-self-tests"
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+
+[dev-dependencies]
+testscribe.workspace = true
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+trybuild = "1"

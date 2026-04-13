@@ -34,16 +34,14 @@ pub fn expand_params(test_fn: TestFn) -> TokenStream {
     }
 
     let mut return_inner_t = None;
-    if let ReturnType::Type(_, ref t) = return_type {
-        if let Type::Path(p) = t.as_ref() {
-            if let Some(segment) = p.path.segments.last() {
-                if let PathArguments::AngleBracketed(ref b) = segment.arguments {
-                    let args = &b.args;
-                    if segment.ident == "Vec" {
-                        return_inner_t = Some(args);
-                    }
-                }
-            }
+    if let ReturnType::Type(_, ref t) = return_type
+        && let Type::Path(p) = t.as_ref()
+        && let Some(segment) = p.path.segments.last()
+        && let PathArguments::AngleBracketed(ref b) = segment.arguments
+    {
+        let args = &b.args;
+        if segment.ident == "Vec" {
+            return_inner_t = Some(args);
         }
     }
     if return_inner_t.is_none() {

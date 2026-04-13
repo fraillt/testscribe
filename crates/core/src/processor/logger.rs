@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use crate::test_case::{FqFnName, TestCase};
+use crate::{
+    report::VerifyOutcome,
+    test_case::{FqFnName, TestCase},
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ParamInfo {
@@ -12,16 +15,9 @@ pub struct ParamInfo {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TestRunInfo {
-    pub depth: usize,
+    pub path: Vec<FqFnName<'static>>,
     pub run_count: usize,
     pub param_info: Option<ParamInfo>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind")]
-pub enum VerifyOutcome {
-    Success,
-    Failure { details: String },
 }
 
 #[derive(Debug, Serialize)]

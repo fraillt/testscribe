@@ -23,17 +23,23 @@ impl Value {
         let binding: &mut Option<T> = self.0.downcast_mut().unwrap();
         binding.take().unwrap()
     }
-    pub fn as_ref<T: 'static>(&self) -> &T {
-        let binding: &Option<T> = self.0.downcast_ref().unwrap();
-        binding.as_ref().unwrap()
-    }
-    pub fn as_mut_ref<T: 'static>(&mut self) -> &mut T {
-        let binding: &mut Option<T> = self.0.downcast_mut().unwrap();
-        binding.as_mut().unwrap()
-    }
     pub fn clone_as<T: Clone + 'static>(&self) -> Self {
         let binding: &Option<T> = self.0.downcast_ref().unwrap();
         Self(Box::new(binding.clone()))
+    }
+}
+
+impl<T: 'static> AsRef<T> for Value {
+    fn as_ref(&self) -> &T {
+        let binding: &Option<T> = self.0.downcast_ref().unwrap();
+        binding.as_ref().unwrap()
+    }
+}
+
+impl<T: 'static> AsMut<T> for Value {
+    fn as_mut(&mut self) -> &mut T {
+        let binding: &mut Option<T> = self.0.downcast_mut().unwrap();
+        binding.as_mut().unwrap()
     }
 }
 
@@ -148,6 +154,10 @@ impl TestParams {
         self.display_values.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.display_values.is_empty()
+    }
+
     pub fn get(&self, index: usize) -> TestParam {
         TestParam {
             header: self.header.clone(),
@@ -257,12 +267,12 @@ pub enum CloneFn {
 
 impl CloneFn {
     pub const fn new_sync<T: Clone + 'static>() -> Self {
-        Self::Sync(|current| Value::new(current.as_ref::<T>().clone()))
+        Self::Sync(|current| Value::new(AsRef::<T>::as_ref(&current).clone()))
     }
 
     pub const fn new_async<T: CloneAsync + 'static>() -> Self {
         Self::Async(|current| {
-            Box::pin(async { Value::new(T::clone_async(current.as_ref::<T>()).await) })
+            Box::pin(async { Value::new(T::clone_async(AsRef::<T>::as_ref(current)).await) })
         })
     }
 

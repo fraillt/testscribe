@@ -1,7 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::spanned::Spanned;
-use syn::{Error, FnArg, Ident, PathArguments, Type};
+use syn::{Error, FnArg, GenericArgument, Ident, Lifetime, PathArguments, Type};
 
 use crate::config::TestConfig;
 use crate::test_fn::TestFn;
@@ -9,7 +9,7 @@ use crate::utils::snake_to_pascal;
 
 pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     let TestFn {
-        mut attrs,
+        attrs,
         vis,
         asyncness,
         mut ident,
@@ -25,22 +25,59 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     let visible_ident = ident.clone();
     let test_struct_name = snake_to_pascal(&visible_name);
     let test_struct = Ident::new(&test_struct_name, visible_ident.span());
-    let standalone = if config.is_standalone.is_some() {
+    // `#[cfg]` must gate every generated item (registration static, marker type, wrapper),
+    // not only the test function itself.
+    let cfg_attrs: Vec<_> = attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("cfg"))
+        .collect();
+    let standalone = if let Some(standalone) = &config.standalone {
+        // Harness attributes belong to the generated wrapper. On the function itself they
+        // would apply to the test body, which is not a valid harness entry point.
+        for attr in &attrs {
+            if let Some(segment) = attr.path().segments.last()
+                && segment.ident == "test"
+            {
+                return Error::new(
+                    attr.span(),
+                    "test harness attributes belong to the generated wrapper; pass them inside \
+                     `standalone(...)` instead, e.g. `#[testscribe(standalone(tokio::test))]`",
+                )
+                .to_compile_error();
+            }
+        }
+        let harness = if standalone.harness.is_empty() {
+            if asyncness.is_some() {
+                return Error::new(
+                    standalone.path.span(),
+                    "async standalone test requires a harness attribute, e.g. `standalone(tokio::test)`",
+                )
+                .to_compile_error();
+            }
+            vec![quote!(#[test])]
+        } else {
+            standalone
+                .harness
+                .iter()
+                .map(|meta| quote!(#[#meta]))
+                .collect()
+        };
         ident = Ident::new(
             &format!("standalone_{}", visible_ident),
             visible_ident.span(),
         );
-        let wrapper_attrs = std::mem::take(&mut attrs);
         Some(if asyncness.is_some() {
             quote! {
-                #(#wrapper_attrs)*
+                #(#cfg_attrs)*
+                #(#harness)*
                 async fn #visible_ident() -> Result<(), String> {
                     testscribe::standalone::run_async(&testscribe::CASES, module_path!(), #test_struct_name).await
                 }
             }
         } else {
             quote! {
-                #(#wrapper_attrs)*
+                #(#cfg_attrs)*
+                #(#harness)*
                 fn #visible_ident() -> Result<(), String> {
                     testscribe::standalone::run_sync(&testscribe::CASES, module_path!(), #test_struct_name)
                 }
@@ -56,7 +93,7 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
         quote!(testscribe::test_case::TestFn::AsyncFn(|ctx, mut parent, mut env, mut param| Box::pin(async move {
             testscribe::test_case::Value::new(#ident(ctx,
                 testscribe::test_args::Given(parent.take()),
-                testscribe::test_args::Env(env.as_mut_ref()),
+                testscribe::test_args::Env(env.as_mut()),
                 testscribe::test_args::Param(param.take())
             ).await)
         })))
@@ -64,7 +101,7 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
         quote!(testscribe::test_case::TestFn::SyncFn(|ctx, mut parent, mut env, mut param| {
             testscribe::test_case::Value::new(#ident(ctx,
                 testscribe::test_args::Given(parent.take()),
-                testscribe::test_args::Env(env.as_mut_ref()),
+                testscribe::test_args::Env(env.as_mut()),
                 testscribe::test_args::Param(param.take())))
         }))
     };
@@ -97,40 +134,35 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     let mut arg_param = None;
     for arg in fn_args.into_iter() {
         if let FnArg::Typed(ref t) = arg {
-            if let Type::Path(p) = t.ty.as_ref() {
-                if let Some(segment) = p.path.segments.last() {
-                    if let PathArguments::AngleBracketed(_) = segment.arguments {
-                        if segment.ident == "Param" {
-                            if let Some(already_exists) = arg_param.replace(quote!( #arg )) {
-                                return Error::new(
-                                    already_exists.span(),
-                                    "`Param` already defined here",
-                                )
-                                .to_compile_error();
-                            };
-                            continue;
-                        }
-                        if segment.ident == "Env" {
-                            if let Some(already_exists) = arg_env.replace(quote!( #arg )) {
-                                return Error::new(
-                                    already_exists.span(),
-                                    "`Env` already defined here",
-                                )
-                                .to_compile_error();
-                            };
-                            continue;
-                        }
-                        if segment.ident == "Given" {
-                            if let Some(already_exists) = arg_parent.replace(quote!( #arg )) {
-                                return Error::new(
-                                    already_exists.span(),
-                                    "`Given` already defined here",
-                                )
-                                .to_compile_error();
-                            };
-                            continue;
-                        }
-                    }
+            if let Type::Path(p) = t.ty.as_ref()
+                && let Some(segment) = p.path.segments.last()
+                && let PathArguments::AngleBracketed(_) = segment.arguments
+            {
+                if segment.ident == "Param" {
+                    if let Some(already_exists) = arg_param.replace(quote!( #arg )) {
+                        return Error::new(already_exists.span(), "`Param` already defined here")
+                            .to_compile_error();
+                    };
+                    continue;
+                }
+                if segment.ident == "Env" {
+                    // Normalize `Env<E>` to `Env<'_, E>`. The generated wrapper is always a real
+                    // `fn`, and async fns reject the elided form (E0726), so without this users
+                    // would have to spell out the lifetime themselves in every async test.
+                    let mut env_arg = arg.clone();
+                    insert_anonymous_lifetime(&mut env_arg);
+                    if let Some(already_exists) = arg_env.replace(quote!( #env_arg )) {
+                        return Error::new(already_exists.span(), "`Env` already defined here")
+                            .to_compile_error();
+                    };
+                    continue;
+                }
+                if segment.ident == "Given" {
+                    if let Some(already_exists) = arg_parent.replace(quote!( #arg )) {
+                        return Error::new(already_exists.span(), "`Given` already defined here")
+                            .to_compile_error();
+                    };
+                    continue;
                 }
             }
             return Error::new(
@@ -172,14 +204,14 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     } else {
         quote!(None)
     };
-    if arg_parent.is_some() {
-        if let Some(path) = config.is_standalone {
-            return Error::new(
-                path.span(),
-                "Standalone test must be a root test (no parent)",
-            )
-            .to_compile_error();
-        }
+    if arg_parent.is_some()
+        && let Some(standalone) = &config.standalone
+    {
+        return Error::new(
+            standalone.path.span(),
+            "Standalone test must be a root test (no parent)",
+        )
+        .to_compile_error();
     }
 
     let arg_parent = arg_parent.unwrap_or_else(|| quote!( _: testscribe::test_args::Given<()>));
@@ -187,6 +219,7 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     let arg_param = arg_param.unwrap_or_else(|| quote!( _: testscribe::test_args::Param<()>));
 
     let mut res = quote! {
+        #(#cfg_attrs)*
         #[testscribe::linkme::distributed_slice(testscribe::CASES)]
         #[linkme(crate = testscribe::linkme)]
         static #test_case: testscribe::test_case::TestCase = testscribe::test_case::TestCase {
@@ -208,8 +241,10 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     };
     let return_type_str = return_type_only.to_string();
     res.extend(quote! {
+        #(#cfg_attrs)*
         #[doc = concat!("Returns [", #return_type_str, "]")]
         #vis struct #test_struct;
+        #(#cfg_attrs)*
         impl testscribe::test_args::ParentTest for #test_struct {
             type Value = #return_type_only;
         }
@@ -242,4 +277,21 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     });
 
     res
+}
+
+/// Ensures an `Env<...>` argument's first generic is a lifetime, inserting an anonymous `'_`
+/// when the user omitted it. This lets `Env<E>` be written uniformly in both sync and async
+/// tests; an already-present lifetime (e.g. `Env<'_, E>`) is left untouched.
+fn insert_anonymous_lifetime(arg: &mut FnArg) {
+    if let FnArg::Typed(typed) = arg
+        && let Type::Path(path) = typed.ty.as_mut()
+        && let Some(segment) = path.path.segments.last_mut()
+        && let PathArguments::AngleBracketed(generics) = &mut segment.arguments
+        && !matches!(generics.args.first(), Some(GenericArgument::Lifetime(_)))
+    {
+        generics.args.insert(
+            0,
+            GenericArgument::Lifetime(Lifetime::new("'_", segment.ident.span())),
+        );
+    }
 }

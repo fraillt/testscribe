@@ -1,0 +1,29 @@
+# cargo-release config (https://github.com/crate-ci/cargo-release).
+#
+# Crates are released in lockstep: one shared version, one `v<version>` git tag,
+# all published together in dependency order. Non-published crates opt out with
+# `release = false`. This keeps versions, the tag, and the CHANGELOG from drifting
+# apart, at the cost of occasionally republishing an unchanged crate.
+#
+# Before release:
+# - make a clean `main` with everything merged and CI green
+# - fill in the `## [Unreleased]` section of CHANGELOG.md; its heading and date are 
+#   rewritten automatically on release (the replacements live in
+#   [package.metadata.release] in crates/testscribe/Cargo.toml).
+# - dry run `cargo release minor`
+# - execute `cargo release minor -x` 
+#   This will, in one shot:
+#   - bump `[workspace.package] version` and the internal `[workspace.dependencies]` requirements,
+#   - rewrite the CHANGELOG (`[Unreleased]` -> `[<version>] - <date>`, reseed a new Unreleased),
+#   - commit (`release: v<version>`) and tag (`v<version>`),
+#   - push the commit and tag,
+#   - `cargo publish` every published crate in dependency order, waiting between them.  
+
+# Only release from main.
+allow-branch = ["main"]
+
+# All published crates move to the same version together (lockstep).
+shared-version = true
+
+# Single workspace tag (e.g. v0.2.0), not one tag per crate.
+tag-name = "v{{version}}"

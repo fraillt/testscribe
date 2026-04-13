@@ -1,3 +1,10 @@
+//! Reporting and assertion types behind the `then!` macro.
+//!
+//! The `then!` macro (generated inside every `#[testscribe]` test) creates a [`VerifyValue`]
+//! or [`VerifyStatement`]. Checks on them come from extension traits — the built-in ones live
+//! in the [`basic`] module, and custom domain-specific checks can be added via
+//! [`VerifyValueExposed`] / [`VerifyStatementExposed`].
+
 mod check_report;
 mod verify_object;
 
@@ -7,7 +14,7 @@ pub mod basic;
 use std::rc::Rc;
 use std::{cell::RefCell, time::Instant};
 
-pub use check_report::{CheckReporter, ParamCheckReporter};
+pub use check_report::{CheckReporter, ParamCheckReporter, VerifyOutcome};
 pub use verify_object::{VerifyStatement, VerifyStatementExposed, VerifyValue, VerifyValueExposed};
 
 use crate::{
@@ -15,6 +22,11 @@ use crate::{
     test_case::TestCase,
 };
 
+/// Live report of the currently executing test; check outcomes are streamed through it.
+///
+/// Created by the framework and passed into every test function as a hidden first argument,
+/// where the generated `then!` macro picks it up. You should never need to construct or
+/// touch it directly.
 pub struct TestReport {
     test: &'static TestCase,
     logger: Rc<RefCell<&'static mut dyn Logger>>,

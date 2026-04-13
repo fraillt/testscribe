@@ -1,21 +1,52 @@
-// TODO this should be private, but it exposed for backend
+//! The default test runner for the [testscribe](https://docs.rs/testscribe) test framework.
+//!
+//! It integrates testscribe's test trees with the standard test harness, so a whole tree runs
+//! under plain `cargo test`. Most users don't depend on this crate directly: it is pulled in
+//! automatically by the main [`testscribe`](https://docs.rs/testscribe) crate through its default
+//! `standalone` feature.
+//!
+//! You only need this crate directly when building a **custom test runner** in a `harness = false`
+//! integration test. [`run_all_sync`] is the entry point: it parses libtest-style arguments,
+//! filters, runs the whole tree, and reports results.
+//!
+//! ```rust,ignore
+//! use std::process::ExitCode;
+//!
+//! use testscribe::CASES;
+//! use testscribe::standalone::{args::Arguments, run_all_sync};
+//!
+//! fn main() -> ExitCode {
+//!     run_all_sync(&CASES, Arguments::from_args())
+//!         .unwrap()
+//!         .exit_code()
+//! }
+//! ```
+//!
+//! See the `custom_test_runner` example in the main crate for a complete setup.
+
+#[doc(hidden)]
 pub mod args;
-pub mod filter;
+#[doc(hidden)]
 pub mod logger;
+#[doc(hidden)]
 pub mod panic_hook;
+
+mod filter;
 mod runner;
 
-use std::{io::Write, sync::Mutex};
+use std::{collections::HashSet, io::Write, sync::Mutex};
 
 use futures::executor::block_on;
 
 use testscribe_core::{
     processor::{
-        filter::{Filter, NoFilter},
+        filter::{Filter, FilterByPath, NoFilter},
         logger::TestRunInfo,
     },
     test_case::{FqFnName, TestCase},
-    tests_tree::{BuildTreeError, TestsTree, create_test_trees, filter_test_trees},
+    tests_tree::{
+        AugmentedTestsTree, BuildTreeError, TestsTree, create_test_trees, filter_test_trees,
+    },
 };
 
 use crate::{
@@ -26,44 +57,17 @@ use crate::{
 
 pub use crate::runner::run_test_tree;
 
+/// Used for development with "standalone" tests, to run only a specific test node in a test tree.
+/// This tag is ignored by default, but if `--exact` flag is used, only tests with this tag will be run.
+pub const ONLY_THIS_TAG_NAME: &str = "exact_this";
+
 /// This function signature is used by proc-macros to run `standalone` tests synchronously.
 pub fn run_sync(
     test_cases: &'static [TestCase],
     module_path: &'static str,
     test_name: &'static str,
 ) -> Result<(), String> {
-    let mut trees = create_test_trees(test_cases);
-    let tree_name = &FqFnName::new(module_path, test_name);
-    let tree = trees.swap_remove(
-        trees
-            .binary_search_by(|tree| tree.node.name.cmp(tree_name))
-            .unwrap(),
-    );
-    tree.verify(false).map_err(|err| err.to_string())?;
-
-    let args = Arguments::from_args();
-    let mut stdout = std::io::stdout();
-    let mut vecout = Vec::new();
-    let output: &mut dyn Write = if args.nocapture {
-        &mut stdout
-    } else {
-        &mut vecout
-    };
-
-    let mut printer = TestFormatter::new(output);
-    let summary = block_on(run_test_tree(tree, &NoFilter, &mut printer, args.exact));
-
-    printer.print_failures(&summary.failed);
-    printer.print_panics(&summary.panics);
-    if !args.nocapture {
-        print!("{}", String::from_utf8(vecout).unwrap());
-    }
-
-    if summary.is_success() {
-        Ok(())
-    } else {
-        return Err(format!("Test {test_name} failed."));
-    }
+    block_on(run_async(test_cases, module_path, test_name))
 }
 
 /// This function signature is used by proc-macros to run `standalone` tests asynchronously.
@@ -89,9 +93,32 @@ pub async fn run_async(
     } else {
         &mut vecout
     };
+    let filter: &dyn Filter = if args.exact {
+        let mut tree1 =
+            AugmentedTestsTree::new(&tree, |test| test.tags.contains(&ONLY_THIS_TAG_NAME));
+        tree1.update_parents(|p, c| {
+            p.extra |= c.extra;
+        });
+        if tree1.node.extra {
+            let mut paths = vec![];
+            tree1.visit_breath(|node, depth| {
+                if node.extra {
+                    if paths.len() <= depth {
+                        paths.push(HashSet::new());
+                    }
+                    paths[depth].insert(node.test.name);
+                }
+            });
+            &FilterByPath { paths }
+        } else {
+            &NoFilter
+        }
+    } else {
+        &NoFilter
+    };
 
     let mut printer = TestFormatter::new(output);
-    let summary = run_test_tree(tree, &NoFilter, &mut printer, args.exact).await;
+    let summary = run_test_tree(tree, filter, &mut printer, args.exact).await;
     printer.print_failures(&summary.failed);
     printer.print_panics(&summary.panics);
     if !args.nocapture {
@@ -100,7 +127,7 @@ pub async fn run_async(
     if summary.is_success() {
         Ok(())
     } else {
-        return Err(format!("Test {test_name} failed."));
+        Err(format!("Test {test_name} failed."))
     }
 }
 
@@ -110,7 +137,7 @@ pub async fn run_async(
 pub fn run_all_sync(
     test_cases: &'static [TestCase],
     args: Arguments,
-) -> Result<ExecutionSummary, BuildTreeError> {
+) -> Result<ExecutionSummary, Box<BuildTreeError>> {
     let trees = filter_test_trees(create_test_trees(test_cases), |test| {
         filter_out_test(test, &args)
     });
@@ -118,7 +145,7 @@ pub fn run_all_sync(
 
     if args.list {
         for tree in &trees {
-            print_list(&tree, args.ignored, 0);
+            print_list(tree, args.ignored, 0);
         }
         return Ok(ExecutionSummary::default());
     }
@@ -181,8 +208,8 @@ pub fn run_all_sync(
         });
 
         let mut summary = ExecutionSummary::default();
-        let mut iter = receiver.try_iter().take(num_roots);
-        while let Some((test_summary, vecout)) = iter.next() {
+        let iter = receiver.try_iter().take(num_roots);
+        for (test_summary, vecout) in iter {
             summary.extend(&test_summary);
             print!("{}", String::from_utf8(vecout).unwrap());
         }

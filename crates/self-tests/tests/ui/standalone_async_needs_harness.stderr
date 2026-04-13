@@ -1,0 +1,5 @@
+error: async standalone test requires a harness attribute, e.g. `standalone(tokio::test)`
+ --> tests/ui/standalone_async_needs_harness.rs:3:14
+  |
+3 | #[testscribe(standalone)]
+  |              ^^^^^^^^^^

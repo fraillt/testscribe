@@ -11,10 +11,10 @@ pub fn filter_out_test(test: &TestCase, args: &Arguments) -> bool {
     if args.filter.is_some() || !args.skip.is_empty() {
         let test_name = format!("{}", test.name);
 
-        if let Some(filter) = &args.filter {
-            if !match_test(&test_name, test.tags, filter, args.exact) {
-                return true;
-            }
+        if let Some(filter) = &args.filter
+            && !match_test(&test_name, test.tags, filter, args.exact)
+        {
+            return true;
         }
 
         for filter in &args.skip {
@@ -31,7 +31,7 @@ fn match_test(test_name: &str, tags: &[&'static str], filter: &str, exact: bool)
         .strip_prefix("[")
         .and_then(|filter| filter.strip_suffix("]"));
     if let Some(tag_filter) = by_tag {
-        tags.iter().any(|tag| *tag == tag_filter)
+        tags.contains(&tag_filter)
     } else if exact {
         test_name == filter
     } else {

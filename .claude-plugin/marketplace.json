@@ -1,0 +1,14 @@
+{
+  "name": "testscribe",
+  "owner": {
+    "name": "Mindaugas Vinkelis",
+    "email": "fraillt@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "testscribe",
+      "source": "./",
+      "description": "Write idiomatic tests with the testscribe Rust test framework: test trees, the SHAPE loop, and readable Given/When/Then output."
+    }
+  ]
+}

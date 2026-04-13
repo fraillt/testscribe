@@ -2,8 +2,9 @@ use std::process::ExitCode;
 
 use std::{mem::take, time::Duration};
 
+use testscribe_core::report::VerifyOutcome;
 use testscribe_core::{
-    processor::logger::{Logger, SkipReason, TestStatusUpdate, TestUpdate, VerifyOutcome},
+    processor::logger::{Logger, SkipReason, TestStatusUpdate, TestUpdate},
     test_case::{FqFnName, TestCase},
 };
 
@@ -166,7 +167,7 @@ impl<P: Logger> Logger for TestsTreeLogger<'_, P> {
             }
             TestStatusUpdate::Skipped { info, reason } => {
                 // this is a separate test, don't use `is_first_run` flag here
-                if info.depth == 0 {
+                if info.path.len() == 1 {
                     self.summary.skipped.push((test.name, reason.clone()));
                 }
             }

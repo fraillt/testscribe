@@ -9,7 +9,7 @@ use crate::processor::filter::Filter;
 use crate::processor::logger::{Logger, PanicLocation, SkipReason, TestRunInfo, TestStatusUpdate};
 use crate::processor::panic::extract_string_from_panic_payload;
 use crate::report::TestReport;
-use crate::test_case::{CloneFns, EnvFns, FqFnName, TestCase, TestFn, Value};
+use crate::test_case::{CloneFns, EnvFns, FqFnName, TestCase, Value};
 
 pub struct EnvData {
     name: FqFnName<'static>,
@@ -43,7 +43,7 @@ impl RunState {
     pub async fn clone_state(&self, clone_fns: &CloneFns) -> RunState {
         match self {
             RunState::Run { test_data, env } => {
-                let state_res = AssertUnwindSafe(clone_fns.state.invoke(&test_data))
+                let state_res = AssertUnwindSafe(clone_fns.state.invoke(test_data))
                     .catch_unwind()
                     .await;
                 let env_res = AssertUnwindSafe(clone_fns.env.invoke(&env.data))
@@ -53,7 +53,7 @@ impl RunState {
                     (Ok(test_data), Ok(env_data)) => RunState::Run {
                         test_data,
                         env: EnvData {
-                            name: env.name.clone(),
+                            name: env.name,
                             data: env_data,
                             is_empty: env.is_empty,
                         },
@@ -63,7 +63,7 @@ impl RunState {
                         let message = extract_string_from_panic_payload(err.as_ref())
                             .unwrap_or_else(|| "<unknown msg>".to_string());
                         RunState::Skip(SkipReason::Panicked {
-                            name: env.name.clone(),
+                            name: env.name,
                             location: PanicLocation::Setup,
                             message,
                         })
@@ -81,8 +81,6 @@ impl RunState {
         test: &'static TestCase,
         started_at: Instant,
         info: TestRunInfo,
-        test_fn: &TestFn,
-        env_info: &Option<EnvFns>,
         test_params: Option<Value>,
     ) -> RunState {
         let name = test.name;
@@ -99,18 +97,7 @@ impl RunState {
                     );
                     return RunState::Skip(SkipReason::Ignored { name });
                 }
-                execute_test(
-                    logger,
-                    test,
-                    started_at,
-                    info,
-                    test_fn,
-                    test_data,
-                    env,
-                    env_info,
-                    test_params,
-                )
-                .await
+                execute_test(logger, test, started_at, info, test_data, env, test_params).await
             }
             RunState::Skip(reason) => {
                 logger.log(
@@ -132,13 +119,11 @@ async fn execute_test(
     test: &'static TestCase,
     started_at: Instant,
     info: TestRunInfo,
-    test_fn: &TestFn,
     parent_data: Value,
     env: EnvData,
-    env_info: &Option<EnvFns>,
     params: Option<Value>,
 ) -> RunState {
-    let mut env = match setup_env(env, env_info).await {
+    let mut env = match setup_env(env, &test.env).await {
         Ok(env) => env,
         Err(reason) => return RunState::Skip(reason),
     };
@@ -156,7 +141,7 @@ async fn execute_test(
         let logger = std::mem::transmute::<&mut dyn Logger, &'static mut dyn Logger>(logger);
         Rc::new(RefCell::new(logger))
     };
-    let test_res = AssertUnwindSafe(test_fn.invoke(
+    let test_res = AssertUnwindSafe(test.test_fn.invoke(
         TestReport::new(test, logger.clone(), started_at),
         parent_data,
         &mut env.data,

@@ -4,8 +4,17 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, Meta, Path, Token};
 
 #[derive(Debug)]
+pub struct StandaloneConfig {
+    /// The `standalone` path itself, kept for error spans.
+    pub path: Path,
+    /// Attributes to put on the generated test-harness wrapper, e.g. `tokio::test`.
+    /// Empty means the default `#[test]` (only valid for sync test functions).
+    pub harness: Vec<Meta>,
+}
+
+#[derive(Debug)]
 pub struct TestConfig {
-    pub is_standalone: Option<Path>,
+    pub standalone: Option<StandaloneConfig>,
     pub is_cloneable: Option<Path>,
     pub is_cloneable_async: Option<Path>,
     pub tags: Vec<Ident>,
@@ -22,7 +31,7 @@ impl Parse for Config {
         let list = Punctuated::<Meta, Token![,]>::parse_terminated(input)?;
         let mut is_param_mode = false;
         let mut test_config = TestConfig {
-            is_standalone: None,
+            standalone: None,
             is_cloneable: None,
             is_cloneable_async: None,
             tags: Vec::new(),
@@ -35,7 +44,7 @@ impl Parse for Config {
             } else if param.path().is_ident("params") {
                 is_param_mode = true;
             } else if param.path().is_ident("standalone") {
-                test_config.is_standalone = Some(param.path().clone());
+                test_config.standalone = Some(parse_standalone(param)?);
             } else if param.path().is_ident("tags") {
                 let value = param.require_name_value()?;
                 if let Expr::Array(list) = &value.value {
@@ -78,9 +87,9 @@ impl Parse for Config {
                     "`cloneable_async` cannot be used in `params` mode",
                 ));
             }
-            if let Some(path) = test_config.is_standalone {
+            if let Some(standalone) = test_config.standalone {
                 return Err(Error::new(
-                    path.span(),
+                    standalone.path.span(),
                     "`standalone` cannot be used in `params` mode",
                 ));
             }
@@ -92,15 +101,44 @@ impl Parse for Config {
             }
             Ok(Config::Params)
         } else {
-            if test_config.is_cloneable.is_some() {
-                if let Some(path) = &test_config.is_cloneable_async {
-                    return Err(Error::new(
-                        path.span(),
-                        "choose only one: `cloneable` or `cloneable_async`",
-                    ));
-                }
+            if test_config.is_cloneable.is_some()
+                && let Some(path) = &test_config.is_cloneable_async
+            {
+                return Err(Error::new(
+                    path.span(),
+                    "choose only one: `cloneable` or `cloneable_async`",
+                ));
             }
             Ok(Config::Test(test_config))
         }
+    }
+}
+
+fn parse_standalone(param: Meta) -> Result<StandaloneConfig> {
+    match param {
+        Meta::Path(path) => Ok(StandaloneConfig {
+            path,
+            harness: Vec::new(),
+        }),
+        Meta::List(list) => {
+            let harness: Vec<Meta> = list
+                .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?
+                .into_iter()
+                .collect();
+            if harness.is_empty() {
+                return Err(Error::new(
+                    list.span(),
+                    "expected a test harness attribute, e.g. `standalone(tokio::test)`",
+                ));
+            }
+            Ok(StandaloneConfig {
+                path: list.path,
+                harness,
+            })
+        }
+        Meta::NameValue(nv) => Err(Error::new(
+            nv.span(),
+            "`standalone` does not take a value; use `standalone` or `standalone(tokio::test)`",
+        )),
     }
 }

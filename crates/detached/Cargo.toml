@@ -1,11 +1,13 @@
 [package]
-name = "testscribe-detached"
-version.workspace = true
-rust-version.workspace = true
+authors.workspace = true
+description = "Experimental remote-controlled test runner for the testscribe test framework"
 edition.workspace = true
 license.workspace = true
-authors.workspace = true
+name = "testscribe-detached"
+readme = "README.md"
 repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 futures = "0.3"

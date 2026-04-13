@@ -1,0 +1,5 @@
+error: test harness attributes belong to the generated wrapper; pass them inside `standalone(...)` instead, e.g. `#[testscribe(standalone(tokio::test))]`
+ --> tests/ui/standalone_harness_on_fn.rs:4:1
+  |
+4 | #[test]
+  | ^

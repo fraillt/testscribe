@@ -143,24 +143,14 @@ impl Arguments {
     pub fn from_args() -> Self {
         Parser::parse()
     }
-
-    /// Like `from_args()`, but operates on an explicit iterator and not the
-    /// global arguments. Note that the first element is the executable name!
-    pub fn from_iter<I>(iter: I) -> Self
-    where
-        Self: Sized,
-        I: IntoIterator,
-        I::Item: Into<std::ffi::OsString> + Clone,
-    {
-        Parser::parse_from(iter)
-    }
 }
 
 /// Possible values for the `--color` option.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum ColorSetting {
     /// Colorize output if stdout is a tty and tests are run on serially
     /// (default).
+    #[default]
     Auto,
 
     /// Always colorize output.
@@ -170,12 +160,6 @@ pub enum ColorSetting {
     Never,
 }
 
-impl Default for ColorSetting {
-    fn default() -> Self {
-        ColorSetting::Auto
-    }
-}
-
 /// Possible values for the `-Z` option
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum UnstableFlags {
@@ -183,9 +167,10 @@ pub enum UnstableFlags {
 }
 
 /// Possible values for the `--format` option.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum FormatSetting {
     /// One line per test. Output for humans. (default)
+    #[default]
     Pretty,
 
     /// One character per test. Usefull for test suites with many tests.
@@ -193,12 +178,6 @@ pub enum FormatSetting {
 
     /// Json output
     Json,
-}
-
-impl Default for FormatSetting {
-    fn default() -> Self {
-        FormatSetting::Pretty
-    }
 }
 
 #[cfg(test)]

@@ -89,7 +89,7 @@ impl Frontend for RemoteFrontend {
                 .values()
                 .map(|tree| StartMsg::Init {
                     root_name: tree.node.name,
-                    tree: tree,
+                    tree,
                 })
                 .collect::<Vec<_>>(),
         )
