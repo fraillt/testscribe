@@ -15,6 +15,8 @@ This changelog covers all crates in the workspace
 
 ## [0.1.0] - 2026-06-16
 
+## [0.1.0] - 2026-06-16
+
 ### Added
 
 - `testscribe` testing framework for stateful systems: tests build on each other's state, forming a
