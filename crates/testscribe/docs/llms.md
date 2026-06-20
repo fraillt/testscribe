@@ -147,6 +147,11 @@ Pattern:
 - Implement a trait for `VerifyValue<'_, T>` in test code.
 - Use `VerifyValueExposed::new(self)` and `reporter.set_outcome(...)`.
 
+Multiple facts per check:
+- `set_outcome` takes `&self`, so one check may call it several times — each call is its own
+  `Then ...` line. Use this when a domain check naturally verifies several related facts (e.g.
+  `transfers(from, to, amount)` reporting debit and credit with amount as two lines).
+
 Example:
 - `then!(checkout_result).rejected_for_insufficient_stock(product_id);`
 

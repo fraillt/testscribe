@@ -228,7 +228,7 @@ impl<'a, const ASYNC: bool> CheckParams<'a, ASYNC> for VerifyStatement<'a, ASYNC
         VerifyParamsRun {
             reporter: this
                 .reporter
-                .into_param_check_reporter::<T>(this.message.to_owned()),
+                .into_param_check_reporter(this.message.to_owned(), Vec::from(T::NAMES)),
             params: list.into_iter().collect(),
         }
     }

@@ -4,7 +4,8 @@ use std::ops::{Deref, DerefMut};
 ///
 /// Usually implemented with `#[derive(ParamDisplay)]` from the `testscribe` crate, which uses
 /// field names as column headers and renders each field with its `Display` implementation
-/// (customizable per field via the `#[pd(debug)]` and `#[pd(custom = ...)]` attributes).
+/// (customizable per field via the `#[pd(debug)]` and `#[pd(custom = ...)]` attributes, or hidden
+/// from the table entirely with `#[pd(hide)]` while still carrying the value into the test).
 ///
 /// Required by parameter providers (`#[testscribe(params)]`) and by table-style checks
 /// (`then!("...").params(list)`).

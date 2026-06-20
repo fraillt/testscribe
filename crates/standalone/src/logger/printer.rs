@@ -213,7 +213,7 @@ impl<'a> TestFormatter<'a> {
                                 "And".red()
                             },
                             if let VerifyOutcome::Success = &outcome {
-                                message.white()
+                                message.normal()
                             } else {
                                 message.red()
                             }
@@ -275,9 +275,9 @@ impl<'a> TestFormatter<'a> {
                                 get_assertion_status(&outcome),
                                 "  ".repeat(test_info.path.len()),
                                 if let VerifyOutcome::Success = &outcome {
-                                    row.join(",")
+                                    row.join(",").normal()
                                 } else {
-                                    row.join(",").red().to_string()
+                                    row.join(",").red()
                                 },
                             )
                             .unwrap();

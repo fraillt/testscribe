@@ -216,6 +216,7 @@ pub fn testscribe(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Rendering of individual fields can be customized with the `#[pd]` attribute:
 /// - `#[pd(debug)]` — render the field with [`Debug`](std::fmt::Debug) (`{:?}`) instead of `Display`
 /// - `#[pd(custom = path::to_fn)]` — render with a custom function `fn(&FieldType) -> String`
+/// - `#[pd(hide)]` — omit the field from the displaying entirely (no column header, no value).
 ///
 /// ```ignore
 /// use testscribe::ParamDisplay;
@@ -231,6 +232,9 @@ pub fn testscribe(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     amount: u32,
 ///     #[pd(debug)]
 ///     accepted: Option<bool>,
+///     // carried into the test but not shown in the table
+///     #[pd(hide)]
+///     gateway_response: GatewayResponse,
 /// }
 /// ```
 ///

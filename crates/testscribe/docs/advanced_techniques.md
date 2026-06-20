@@ -52,6 +52,16 @@ A custom check is a trait implemented for `VerifyValue<'_, T>`. Inside the impl 
 
 Why two types? `VerifyValue` deliberately exposes **no** public fields or methods, so the only things IDE autocomplete offers on a `then!(...)` result are the checks themselves (`.eq`, `.contains`, your custom ones) — never internal plumbing. `VerifyValueExposed` is the escape hatch, used *only inside* a custom check's implementation, to reach those internals.
 
+**One check can report several facts:**
+`reporter.set_outcome(...)` takes `&self`, so a single custom check may call it more than once — each call emits its own `Then ...` line. This lets one domain-level check verify several related facts together while keeping each on its own readable line. For example, a `transfers(from, to, amount, currency)` check on a payment transaction can report the debit and the credit as separate lines:
+
+```text
+|       -|  Then debits Account1 by 50.50 EUR
+|       -|  Then credits Account2 by 50.50 EUR
+```
+
+The same applies to table-style checks: the `ParamCheckReporter` returned when emitting a params table can be converted back with `into_check_reporter()`, so one check can mix a table with ordinary `Then ...` lines, or emit several tables in sequence.
+
 Reference: [custom_checks.rs](../tests/custom_checks.rs)
 
 ### 3) Clone state and environment to avoid redundant re-execution
@@ -123,6 +133,18 @@ Imagine actions that always happen (close payment, notify status change, display
 | close payment            | set state - accepted | set state - failed       |
 | report status change     | notify - client      | notify - operations team |
 | show in reporting system | show as transferred  | not shown in the system  |
+
+**Carrying richer data with `#[pd(hide)]`:**
+A parameter row often needs to carry more than what belongs on a single output line — a full input payload, a fixture handle, expected sub-values used later in the body. Mark such fields `#[pd(hide)]` on the `ParamDisplay` derive: the field is omitted from the table (no column header, no value) but is still fully available on the parameter inside the test. This keeps the matrix scannable — one tidy line per row — while letting each case carry whatever the test actually needs. It works the same way for `#[testscribe(params)]` providers and for `then!("...").params(list)` table checks.
+
+```rust
+#[derive(Clone, ParamDisplay)]
+struct TestCaseParam {
+    nr: i32,
+    #[pd(hide)]
+    extra_data: bool, // available in the test, not shown in test params
+}
+```
 
 Reference: [parameterized_tests.rs](../tests/parameterized_tests.rs)
 

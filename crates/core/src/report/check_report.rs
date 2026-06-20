@@ -1,10 +1,10 @@
 use std::error::Error;
+use std::mem::ManuallyDrop;
 
 use serde::Serialize;
 
 use crate::processor::logger::TestUpdate;
 use crate::report::TestReport;
-use crate::test_args::ParamDisplay;
 
 /// Outcome of a single check, reported through [`CheckReporter::set_outcome`].
 ///
@@ -61,7 +61,9 @@ where
 ///
 /// Accessed through [`VerifyValueExposed`](crate::report::VerifyValueExposed) /
 /// [`VerifyStatementExposed`](crate::report::VerifyStatementExposed) when implementing
-/// custom checks; call [`set_outcome`](CheckReporter::set_outcome) exactly once.
+/// custom checks. [`set_outcome`](CheckReporter::set_outcome) takes `&self`, so a single
+/// custom check may report several outcomes (each becomes its own `Then ...` line) — useful
+/// when one domain check naturally verifies several facts at once.
 pub struct CheckReporter<'a> {
     line: u32,
     file: &'static str,
@@ -73,7 +75,10 @@ impl<'a> CheckReporter<'a> {
         Self { line, file, report }
     }
     /// Reports the check result; `message` is shown as the `Then ...` line in test output.
-    pub fn set_outcome(self, message: String, outcome: VerifyOutcome) {
+    ///
+    /// Takes `&self`, so it may be called more than once from a single check to emit several
+    /// `Then ...` lines.
+    pub fn set_outcome(&self, message: String, outcome: VerifyOutcome) {
         self.report.update(TestUpdate::Verified {
             message,
             file: self.file,
@@ -82,17 +87,20 @@ impl<'a> CheckReporter<'a> {
         });
     }
 
-    pub fn into_param_check_reporter<T>(self, message: String) -> ParamCheckReporter<'a>
-    where
-        T: ParamDisplay + 'static,
-    {
+    pub fn into_param_check_reporter(
+        self,
+        message: String,
+        header: Vec<&'static str>,
+    ) -> ParamCheckReporter<'a> {
         self.report.update(TestUpdate::ParamsStarted {
             message,
             line_nr: self.line,
             file: self.file,
-            header: Vec::from(T::NAMES),
+            header,
         });
         ParamCheckReporter {
+            line: self.line,
+            file: self.file,
             report: self.report,
         }
     }
@@ -103,10 +111,12 @@ impl<'a> CheckReporter<'a> {
 /// Created with [`CheckReporter::into_param_check_reporter`]; the table is finished
 /// automatically when the reporter is dropped.
 pub struct ParamCheckReporter<'a> {
+    line: u32,
+    file: &'static str,
     report: &'a mut TestReport,
 }
 
-impl ParamCheckReporter<'_> {
+impl<'a> ParamCheckReporter<'a> {
     /// Reports the outcome of one table row.
     pub fn set_param_outcome(
         &mut self,
@@ -119,6 +129,20 @@ impl ParamCheckReporter<'_> {
             row_fields,
             outcome,
         });
+    }
+
+    /// Finishes the table and returns to a plain [`CheckReporter`], so a single custom check can
+    /// emit a params table and then continue reporting ordinary `Then ...` lines (or another
+    /// table). Equivalent to dropping this reporter, but keeps the underlying report available.
+    pub fn into_check_reporter(self) -> CheckReporter<'a> {
+        let this = ManuallyDrop::new(self);
+        let report = unsafe { std::ptr::read(&this.report) };
+        report.update(TestUpdate::ParamsFinished);
+        CheckReporter {
+            line: this.line,
+            file: this.file,
+            report: report,
+        }
     }
 }
 
