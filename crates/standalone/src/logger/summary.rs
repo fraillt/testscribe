@@ -114,6 +114,7 @@ impl<P: Logger> Logger for TestsTreeLogger<'_, P> {
                             message,
                             line_nr,
                             file,
+                            columns_count: _,
                             header: _,
                         } => {
                             self.current_param = Some(ParamInfo {
@@ -124,7 +125,7 @@ impl<P: Logger> Logger for TestsTreeLogger<'_, P> {
                         }
                         TestUpdate::ParamVerified {
                             index,
-                            row_fields: _,
+                            row: _,
                             outcome,
                         } => {
                             if let VerifyOutcome::Failure { details } = outcome {

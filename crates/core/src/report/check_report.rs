@@ -4,7 +4,6 @@ use serde::Serialize;
 
 use crate::processor::logger::TestUpdate;
 use crate::report::TestReport;
-use crate::test_args::ParamDisplay;
 
 /// Outcome of a single check, reported through [`CheckReporter::set_outcome`].
 ///
@@ -82,15 +81,34 @@ impl<'a> CheckReporter<'a> {
         });
     }
 
-    pub fn into_param_check_reporter<T>(self, message: String) -> ParamCheckReporter<'a>
-    where
-        T: ParamDisplay + 'static,
-    {
+    pub fn into_param_check_reporter(
+        self,
+        message: String,
+        header: Vec<&'static str>,
+    ) -> ParamCheckReporter<'a> {
         self.report.update(TestUpdate::ParamsStarted {
             message,
             line_nr: self.line,
             file: self.file,
-            header: Vec::from(T::NAMES),
+            columns_count: header.len(),
+            header: Some(header),
+        });
+        ParamCheckReporter {
+            report: self.report,
+        }
+    }
+
+    pub fn into_param_check_reporter_no_header(
+        self,
+        message: String,
+        columns_count: usize,
+    ) -> ParamCheckReporter<'a> {
+        self.report.update(TestUpdate::ParamsStarted {
+            message,
+            line_nr: self.line,
+            file: self.file,
+            columns_count,
+            header: None,
         });
         ParamCheckReporter {
             report: self.report,
@@ -108,15 +126,10 @@ pub struct ParamCheckReporter<'a> {
 
 impl ParamCheckReporter<'_> {
     /// Reports the outcome of one table row.
-    pub fn set_param_outcome(
-        &mut self,
-        index: usize,
-        row_fields: Vec<String>,
-        outcome: VerifyOutcome,
-    ) {
+    pub fn set_param_outcome(&mut self, index: usize, row: Vec<String>, outcome: VerifyOutcome) {
         self.report.update(TestUpdate::ParamVerified {
             index,
-            row_fields,
+            row,
             outcome,
         });
     }

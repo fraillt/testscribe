@@ -16,6 +16,7 @@ This changelog covers all crates in the workspace
 ### Added
 
 - new field attribute `#[pd(hide)]` on the `ParamDisplay` derive macro. It hides a field from the test output.
+- `ParamCheckReporter` initialization without a header.
 
 ### Fixed
 

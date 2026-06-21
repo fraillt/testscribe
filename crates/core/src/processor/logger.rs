@@ -33,11 +33,13 @@ pub enum TestUpdate {
         message: String,
         line_nr: u32,
         file: &'static str,
-        header: Vec<&'static str>,
+        columns_count: usize,
+        /// If header is present, number of columns must match `columns_count`.
+        header: Option<Vec<&'static str>>,
     },
     ParamVerified {
         index: usize,
-        row_fields: Vec<String>,
+        row: Vec<String>,
         outcome: VerifyOutcome,
     },
     ParamsFinished,

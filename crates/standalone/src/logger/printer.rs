@@ -224,30 +224,35 @@ impl<'a> TestFormatter<'a> {
                         message,
                         line_nr: _,
                         file: _,
+                        columns_count,
                         header,
                     } => {
                         params_state = Some(ParamsState {
                             index,
                             message,
-                            header,
+                            has_header: header.is_some(),
+                            columns_count,
+                            lines: if let Some(header) = header {
+                                vec![header.into_iter().map(|s| s.to_string()).collect()]
+                            } else {
+                                Default::default()
+                            },
                             outcomes: Default::default(),
-                            rows_fields: Default::default(),
                         });
                     }
                     TestUpdate::ParamVerified {
                         index: _,
-                        row_fields,
+                        row,
                         outcome,
                     } => {
                         let state = params_state.as_mut().unwrap();
-                        state.rows_fields.push(row_fields);
+                        state.lines.push(row);
                         state.outcomes.push(outcome);
                     }
                     TestUpdate::ParamsFinished => {
                         let mut state = params_state.take().unwrap();
 
-                        let header =
-                            format_table_header_and_rows(&state.header, &mut state.rows_fields);
+                        format_table(&mut state.lines, state.columns_count);
                         writeln!(
                             self.out,
                             " |       -|  {}{} {}",
@@ -260,24 +265,28 @@ impl<'a> TestFormatter<'a> {
                             &state.message,
                         )
                         .unwrap();
-                        writeln!(
-                            self.out,
-                            " |       -|  {}|{} |",
-                            "  ".repeat(test_info.path.len()),
-                            header.join(",")
-                        )
-                        .unwrap();
+                        let mut lines = state.lines.into_iter();
+                        if state.has_header {
+                            let header = lines.next().unwrap();
+                            writeln!(
+                                self.out,
+                                " |       -|  {}|{} |",
+                                "  ".repeat(test_info.path.len()),
+                                header.join(",")
+                            )
+                            .unwrap();
+                        }
 
-                        for (row, outcome) in state.rows_fields.iter().zip(state.outcomes) {
+                        for (row, outcome) in lines.zip(state.outcomes) {
                             writeln!(
                                 self.out,
                                 "{}|       -|  {}|{} |",
                                 get_assertion_status(&outcome),
                                 "  ".repeat(test_info.path.len()),
                                 if let VerifyOutcome::Success = &outcome {
-                                    row.join(",")
+                                    row.join(",").normal()
                                 } else {
-                                    row.join(",").red().to_string()
+                                    row.join(",").red()
                                 },
                             )
                             .unwrap();
@@ -300,31 +309,22 @@ struct BtSymbol<'a> {
 struct ParamsState {
     index: usize, // to determine whether it's Then or And
     message: String,
-    header: Vec<&'static str>,
-    rows_fields: Vec<Vec<String>>,
+    has_header: bool,
+    columns_count: usize,
+    lines: Vec<Vec<String>>,
     outcomes: Vec<VerifyOutcome>,
 }
 
 // returns formatted header
-fn format_table_header_and_rows(header: &[&'static str], rows: &mut [Vec<String>]) -> Vec<String> {
-    let mut res_header = Vec::from_iter(header.iter().map(|h| h.to_string()));
-    for (i, h) in res_header.iter_mut().enumerate() {
-        let mut max_size = h.len();
+fn format_table(rows: &mut [Vec<String>], columns_count: usize) {
+    for i in 0..columns_count {
+        let mut max_size = 0;
         for r in rows.iter_mut() {
             if max_size < r[i].len() {
                 max_size = r[i].len();
             }
         }
         max_size += 1;
-        // add spaces
-        // h.extend(" ".chars().cycle().take(max_size - h.len()));
-        h.insert_str(
-            0,
-            &" ".chars()
-                .cycle()
-                .take(max_size - h.len())
-                .collect::<String>(),
-        );
         for r in rows.iter_mut() {
             let curr_len = r[i].len();
             r[i].insert_str(
@@ -337,7 +337,6 @@ fn format_table_header_and_rows(header: &[&'static str], rows: &mut [Vec<String>
             // r[i].extend(" ".chars().cycle().take(max_size - curr_len))
         }
     }
-    res_header
 }
 
 fn get_assertion_status(outcome: &VerifyOutcome) -> &'static str {
