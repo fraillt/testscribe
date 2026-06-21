@@ -13,6 +13,10 @@ This changelog covers all crates in the workspace
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- new field attribute `#[pd(hide)]` on the `ParamDisplay` derive macro. It hides a field from the test output.
+
 ### Fixed
 
 - reset text styles in the standalone test printer instead of setting them to white.

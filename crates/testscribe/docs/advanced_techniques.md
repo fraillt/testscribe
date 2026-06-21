@@ -124,6 +124,18 @@ Imagine actions that always happen (close payment, notify status change, display
 | report status change     | notify - client      | notify - operations team |
 | show in reporting system | show as transferred  | not shown in the system  |
 
+**Carrying richer data with `#[pd(hide)]`:**
+A parameter row often needs to carry more than what belongs on a single output line — a full input payload, a fixture handle, expected sub-values used later in the body. Mark such fields `#[pd(hide)]` on the `ParamDisplay` derive: the field is omitted from the table (no column header, no value) but is still fully available on the parameter inside the test. It works the same way for `#[testscribe(params)]` providers and for `then!("...").params(list)` table checks.
+
+```rust
+#[derive(Clone, ParamDisplay)]
+struct TestCaseParam {
+    nr: i32,
+    #[pd(hide)]
+    extra_data: bool, // available in the test, not shown in test params
+}
+```
+
 Reference: [parameterized_tests.rs](../tests/parameterized_tests.rs)
 
 ### 5) Build a custom runner when default execution/reporting is not enough
