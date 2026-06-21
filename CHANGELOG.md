@@ -13,7 +13,9 @@ This changelog covers all crates in the workspace
 
 ## [Unreleased] - ReleaseDate
 
-## [0.1.0] - 2026-06-16
+### Fixed
+
+- reset text styles in the standalone test printer instead of setting them to white.
 
 ## [0.1.0] - 2026-06-16
 

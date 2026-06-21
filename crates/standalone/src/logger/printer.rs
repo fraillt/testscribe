@@ -213,7 +213,7 @@ impl<'a> TestFormatter<'a> {
                                 "And".red()
                             },
                             if let VerifyOutcome::Success = &outcome {
-                                message.white()
+                                message.normal()
                             } else {
                                 message.red()
                             }
