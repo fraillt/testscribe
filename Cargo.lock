@@ -273,7 +273,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "checkout-domain"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "sqlx",
@@ -2410,7 +2410,7 @@ dependencies = [
 
 [[package]]
 name = "testscribe"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "linkme",
  "testscribe-core",
@@ -2422,7 +2422,7 @@ dependencies = [
 
 [[package]]
 name = "testscribe-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "serde",
@@ -2432,7 +2432,7 @@ dependencies = [
 
 [[package]]
 name = "testscribe-detached"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures",
  "serde",
@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "testscribe-proc-macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2455,7 +2455,7 @@ dependencies = [
 
 [[package]]
 name = "testscribe-self-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "testscribe",
  "tokio",
@@ -2464,7 +2464,7 @@ dependencies = [
 
 [[package]]
 name = "testscribe-standalone"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "backtrace",
  "clap",

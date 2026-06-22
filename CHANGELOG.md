@@ -13,6 +13,8 @@ This changelog covers all crates in the workspace
 
 ## [Unreleased] - ReleaseDate
 
+## [0.2.0] - 2026-06-22
+
 ### Added
 
 - new field attribute `#[pd(hide)]` on the `ParamDisplay` derive macro. It hides a field from the test output.
