@@ -48,6 +48,9 @@ fn value_is_replaced_to_5(mut state: Given<Value4IsAddedToCache>) {
 cargo test -- --nocapture
 ```
 
+Trees run in parallel, and each is printed in one piece when it has finished. To watch a slow
+tree test by test, run one at a time: `cargo test -- --nocapture --test-threads=1`.
+
 Example output:
 
 ```text
