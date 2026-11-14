@@ -90,80 +90,95 @@ impl<P: Logger> Logger for TestsTreeLogger<'_, P> {
             TestStatusUpdate::Started { info } => {
                 self.is_first_run = info.run_count == 0;
             }
-            TestStatusUpdate::Updated { info } => {
-                if self.is_first_run {
-                    match info {
-                        TestUpdate::Verified {
-                            message,
-                            line_nr,
-                            file,
-                            outcome,
-                        } => {
-                            if let VerifyOutcome::Failure { details } = outcome {
-                                self.current_failures.push(Failure {
-                                    param_index: None,
-                                    message: message.clone(),
-                                    line_nr: *line_nr,
-                                    file,
-                                    details: details.clone(),
-                                });
-                            }
-                            // self.current_failures |= !outcome.is_success()
-                        }
-                        TestUpdate::ParamsStarted {
-                            message,
-                            line_nr,
-                            file,
-                            columns_count: _,
-                            header: _,
-                        } => {
-                            self.current_param = Some(ParamInfo {
-                                message: message.clone(),
-                                line_nr: *line_nr,
-                                file,
-                            });
-                        }
-                        TestUpdate::ParamVerified {
-                            index,
-                            row: _,
-                            outcome,
-                        } => {
-                            if let VerifyOutcome::Failure { details } = outcome {
-                                let param = self
-                                    .current_param
-                                    .as_ref()
-                                    .expect("ParamVerified update without current param");
-                                self.current_failures.push(Failure {
-                                    param_index: Some(*index),
-                                    message: param.message.clone(),
-                                    line_nr: param.line_nr,
-                                    file: param.file,
-                                    details: details.clone(),
-                                });
-                            }
-                            // self.current_failures |= !outcome.is_success()
-                        }
-                        TestUpdate::ParamsFinished => {}
-                    }
-                }
-            }
-            TestStatusUpdate::Finished { panic_message } => {
-                if self.is_first_run {
-                    self.current_failures
-                        .extend(panic_message.as_ref().map(|message| Failure {
+            TestStatusUpdate::Updated { info } => match info {
+                TestUpdate::Verified {
+                    message,
+                    line_nr,
+                    file,
+                    outcome,
+                } => {
+                    if let VerifyOutcome::Failure { details } = outcome {
+                        self.current_failures.push(Failure {
                             param_index: None,
-                            message: "test should not panic".to_string(),
-                            file: test.filename,
-                            line_nr: test.line_nr,
-                            details: message.clone(),
-                        }));
-                    if !self.current_failures.is_empty() {
-                        self.summary
-                            .failed
-                            .push((test.name, take(&mut self.current_failures)));
-                    } else {
-                        self.summary.passed.push(test.name);
+                            message: message.clone(),
+                            line_nr: *line_nr,
+                            file,
+                            details: details.clone(),
+                        });
                     }
+                    // self.current_failures |= !outcome.is_success()
+                }
+                TestUpdate::ParamsStarted {
+                    message,
+                    line_nr,
+                    file,
+                    columns_count: _,
+                    header: _,
+                } => {
+                    self.current_param = Some(ParamInfo {
+                        message: message.clone(),
+                        line_nr: *line_nr,
+                        file,
+                    });
+                }
+                TestUpdate::ParamVerified {
+                    index,
+                    row: _,
+                    outcome,
+                } => {
+                    if let VerifyOutcome::Failure { details } = outcome {
+                        let param = self
+                            .current_param
+                            .as_ref()
+                            .expect("ParamVerified update without current param");
+                        self.current_failures.push(Failure {
+                            param_index: Some(*index),
+                            message: param.message.clone(),
+                            line_nr: param.line_nr,
+                            file: param.file,
+                            details: details.clone(),
+                        });
+                    }
+                    // self.current_failures |= !outcome.is_success()
+                }
+                TestUpdate::ParamsFinished => {}
+            },
+            TestStatusUpdate::Finished { panic_message } => {
+                self.current_failures
+                    .extend(panic_message.as_ref().map(|message| Failure {
+                        param_index: None,
+                        message: "test should not panic".to_string(),
+                        file: test.filename,
+                        line_nr: test.line_nr,
+                        details: message.clone(),
+                    }));
+                let failures = take(&mut self.current_failures);
+                if self.is_first_run {
+                    if failures.is_empty() {
+                        self.summary.passed.push(test.name);
+                    } else {
+                        self.summary.failed.push((test.name, failures));
+                    }
+                } else if !failures.is_empty()
+                    && !self
+                        .summary
+                        .failed
+                        .iter()
+                        .any(|(name, _)| *name == test.name)
+                {
+                    // A test is executed again for every branch below it, and is counted once,
+                    // by its first run. But a later run that fails where the first one did not
+                    // must not go unnoticed: the tests below it are skipped or build on a state
+                    // that is wrong, and nothing else would fail the tree.
+                    if let Some(index) = self
+                        .summary
+                        .passed
+                        .iter()
+                        .rposition(|name| *name == test.name)
+                    {
+                        self.summary.passed.remove(index);
+                    }
+                    self.summary.failed.push((test.name, failures));
                 }
             }
             TestStatusUpdate::Skipped { info, reason } => {

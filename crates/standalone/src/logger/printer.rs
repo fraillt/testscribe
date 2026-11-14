@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io::Write;
 use std::mem::take;
 use std::path::Path;
@@ -20,6 +21,9 @@ pub struct TestFormatter<'a> {
     current_test_info: Option<TestRunInfo>,
     started_at: Option<Duration>,
     test_updates: Vec<TestUpdate>,
+    /// Tests already printed as failed, so that a test failing the same way every time it is
+    /// executed again is printed once.
+    printed_as_failed: HashSet<FqFnName<'static>>,
 }
 
 impl Logger for TestFormatter<'_> {
@@ -48,6 +52,7 @@ impl<'a> TestFormatter<'a> {
             current_test_info: None,
             started_at: None,
             test_updates: Vec::new(),
+            printed_as_failed: HashSet::new(),
             out,
         }
     }
@@ -155,7 +160,18 @@ impl<'a> TestFormatter<'a> {
         let test_info = self.current_test_info.clone().unwrap();
         let duration = elapsed - self.started_at.unwrap();
         let test_updates = take(&mut self.test_updates);
-        if test_info.run_count == 0 {
+        let failed = panic_message.is_some()
+            || test_updates.iter().any(|update| match update {
+                TestUpdate::Verified { outcome, .. }
+                | TestUpdate::ParamVerified { outcome, .. } => {
+                    !matches!(outcome, VerifyOutcome::Success)
+                }
+                TestUpdate::ParamsStarted { .. } | TestUpdate::ParamsFinished => false,
+            });
+        // A test is printed for its first run. The runs that execute it again for the branches
+        // below it are silent, unless one fails where no earlier run did.
+        let first_failure = failed && self.printed_as_failed.insert(test.name);
+        if test_info.run_count == 0 || first_failure {
             writeln!(
                 self.out,
                 "{}|{: >8}|{}{} {}",
@@ -262,7 +278,7 @@ impl<'a> TestFormatter<'a> {
                             } else {
                                 "And".yellow()
                             },
-                            &state.message,
+                            state.message,
                         )
                         .unwrap();
                         let mut lines = state.lines.into_iter();

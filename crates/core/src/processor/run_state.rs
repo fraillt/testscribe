@@ -65,7 +65,9 @@ impl RunState {
                         RunState::Skip(SkipReason::Panicked {
                             name: env.name,
                             location: PanicLocation::Setup,
-                            message,
+                            message: format!(
+                                "state or environment could not be cloned for the next test: {message}"
+                            ),
                         })
                     }
                 }
@@ -125,7 +127,24 @@ async fn execute_test(
 ) -> RunState {
     let mut env = match setup_env(env, &test.env).await {
         Ok(env) => env,
-        Err(reason) => return RunState::Skip(reason),
+        Err(reason) => {
+            // The test body never ran, but this is the test that could not run. It has to be
+            // reported as failed: its descendants are only skipped, and a tree in which
+            // nothing failed counts as passed.
+            logger.log(
+                test,
+                TestStatusUpdate::Started { info },
+                started_at.elapsed(),
+            );
+            logger.log(
+                test,
+                TestStatusUpdate::Finished {
+                    panic_message: Some(reason.to_string()),
+                },
+                started_at.elapsed(),
+            );
+            return RunState::Skip(reason);
+        }
     };
 
     let name = test.name;
@@ -164,7 +183,7 @@ async fn execute_test(
             RunState::Run { test_data, env }
         }
         Err(err) => {
-            let message = extract_string_from_panic_payload(&err)
+            let message = extract_string_from_panic_payload(err.as_ref())
                 .unwrap_or_else(|| "<unknown msg>".to_string());
             logger.get_mut().log(
                 test,
@@ -196,12 +215,12 @@ async fn setup_env(env: EnvData, env_info: &Option<EnvFns>) -> Result<EnvData, S
                     is_empty: false,
                 }),
                 Err(err) => {
-                    let message = extract_string_from_panic_payload(&err)
+                    let message = extract_string_from_panic_payload(err.as_ref())
                         .unwrap_or_else(|| "<unknown msg>".to_string());
                     Err(SkipReason::Panicked {
                         name,
                         location: PanicLocation::Setup,
-                        message,
+                        message: format!("environment `{name}` could not be created: {message}"),
                     })
                 }
             }

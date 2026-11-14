@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use super::run_state::RunState;
 use crate::processor::filter::Filter;
-use crate::processor::logger::{Logger, ParamInfo, TestRunInfo};
+use crate::processor::logger::{Logger, ParamInfo, TestRunInfo, TestStatusUpdate};
 use crate::test_case::{FqFnName, TestParams, Value};
 use crate::tests_tree::{AugmentedTestsTree, TestsTree};
 
@@ -54,13 +54,49 @@ impl TestsRunner {
                     TestProcess::AlreadyProcessed { outcome } => outcome,
                 };
 
-                let child_run = if let Some(clone_fns) = curr.tree.node.test.clone.as_ref() {
-                    let has_continuation = exec_state_len > state_idx + 1
-                        || curr.state.childs_idx < curr.tree.childs.len();
+                let has_continuation = exec_state_len > state_idx + 1
+                    || curr.state.childs_idx < curr.tree.childs.len();
+                let child_run = if let RunState::Skip(reason) = &new_run {
+                    // Nothing was built here, so there is nothing to build again: every test
+                    // below is skipped for the same reason, without executing the tests above
+                    // once more for each of them. A test that fails slowly - an environment
+                    // waiting for a database that is down - is then waited for once.
                     if has_continuation {
-                        let clone = new_run.clone_state(clone_fns).await;
+                        let skip = RunState::Skip(reason.clone());
                         curr.state.process =
                             Some(TestProcess::AlreadyProcessed { outcome: new_run });
+                        Some(skip)
+                    } else {
+                        None
+                    }
+                } else if let Some(clone_fns) = curr.tree.node.test.clone.as_ref() {
+                    if has_continuation {
+                        let clone = new_run.clone_state(clone_fns).await;
+                        let template = match (&new_run, &clone) {
+                            (RunState::Run { .. }, RunState::Skip(reason)) => {
+                                // The test passed, but what it built cannot be handed to its
+                                // children. That is a failure of this test: reported as one,
+                                // and not tried again for the children that follow.
+                                let (info, _) = curr.prepare_test_run();
+                                let test = curr.tree.node.test;
+                                logger.log(
+                                    test,
+                                    TestStatusUpdate::Started { info },
+                                    started_at.elapsed(),
+                                );
+                                logger.log(
+                                    test,
+                                    TestStatusUpdate::Finished {
+                                        panic_message: Some(reason.to_string()),
+                                    },
+                                    started_at.elapsed(),
+                                );
+                                RunState::Skip(reason.clone())
+                            }
+                            _ => new_run,
+                        };
+                        curr.state.process =
+                            Some(TestProcess::AlreadyProcessed { outcome: template });
                         Some(clone)
                     } else {
                         None
