@@ -13,6 +13,23 @@ This changelog covers all crates in the workspace
 
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+
+- a test tree passed although its tests could not run. A panic while an environment was created,
+  or while state or environment was cloned for the next test, only skipped the tests below; nothing
+  was reported as failed, and `cargo test` printed `ok`. The test that needed the environment or
+  the clone is now reported as failed.
+- a test that passed on its first run and panicked when executed again for a later branch did not
+  fail the tree. It does now, and is printed again where it failed.
+- panic messages were lost: a panicking test was reported with `<unknown msg>` and a panicking
+  check with `panic: no info`.
+
+### Changed
+
+- a test that failed or was skipped is no longer executed again for every test below it. An
+  environment that waits 30 seconds for a database that is down is waited for once, not once per
+  leaf of the tree.
+
 ## [0.2.0] - 2026-06-22
 
 ### Added

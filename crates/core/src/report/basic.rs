@@ -280,7 +280,8 @@ where
         Err(err) => VerifyOutcome::Failure {
             details: format!(
                 "panic: {}",
-                extract_string_from_panic_payload(&err).unwrap_or_else(|| "no info".to_owned())
+                extract_string_from_panic_payload(err.as_ref())
+                    .unwrap_or_else(|| "no info".to_owned())
             ),
         },
     }

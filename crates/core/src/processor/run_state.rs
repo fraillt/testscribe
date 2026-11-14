@@ -40,37 +40,49 @@ impl RunState {
         }
     }
 
-    pub async fn clone_state(&self, clone_fns: &CloneFns) -> RunState {
-        match self {
-            RunState::Run { test_data, env } => {
-                let state_res = AssertUnwindSafe(clone_fns.state.invoke(test_data))
-                    .catch_unwind()
-                    .await;
-                let env_res = AssertUnwindSafe(clone_fns.env.invoke(&env.data))
-                    .catch_unwind()
-                    .await;
-                match (state_res, env_res) {
-                    (Ok(test_data), Ok(env_data)) => RunState::Run {
-                        test_data,
-                        env: EnvData {
-                            name: env.name,
-                            data: env_data,
-                            is_empty: env.is_empty,
-                        },
-                    },
-                    (state_res, env_res) => {
-                        let err = state_res.err().or_else(|| env_res.err()).unwrap();
-                        let message = extract_string_from_panic_payload(err.as_ref())
-                            .unwrap_or_else(|| "<unknown msg>".to_string());
-                        RunState::Skip(SkipReason::Panicked {
-                            name: env.name,
-                            location: PanicLocation::Setup,
-                            message,
-                        })
-                    }
-                }
+    /// A copy of this state for the next test to start from, which leaves this one with the
+    /// test that built it. `None` if there is no way to make one, because the test is not
+    /// cloneable.
+    pub async fn clone_state(
+        &self,
+        clone_fns: Option<&CloneFns>,
+    ) -> Result<Option<RunState>, SkipReason> {
+        let (test_data, env) = match self {
+            RunState::Run { test_data, env } => (test_data, env),
+            // Nothing was built, so there is nothing to clone: every test below is skipped
+            // for the same reason.
+            RunState::Skip(reason) => return Ok(Some(RunState::Skip(reason.clone()))),
+        };
+        let Some(clone_fns) = clone_fns else {
+            return Ok(None);
+        };
+        let state_res = AssertUnwindSafe(clone_fns.state.invoke(test_data))
+            .catch_unwind()
+            .await;
+        let env_res = AssertUnwindSafe(clone_fns.env.invoke(&env.data))
+            .catch_unwind()
+            .await;
+        match (state_res, env_res) {
+            (Ok(test_data), Ok(env_data)) => Ok(Some(RunState::Run {
+                test_data,
+                env: EnvData {
+                    name: env.name,
+                    data: env_data,
+                    is_empty: env.is_empty,
+                },
+            })),
+            (state_res, env_res) => {
+                let err = state_res.err().or_else(|| env_res.err()).unwrap();
+                let message = extract_string_from_panic_payload(err.as_ref())
+                    .unwrap_or_else(|| "<unknown msg>".to_string());
+                Err(SkipReason::Panicked {
+                    name: env.name,
+                    location: PanicLocation::Setup,
+                    message: format!(
+                        "state or environment could not be cloned for the next test: {message}"
+                    ),
+                })
             }
-            RunState::Skip(skip_reason) => RunState::Skip(skip_reason.clone()),
         }
     }
 
@@ -114,6 +126,30 @@ impl RunState {
     }
 }
 
+/// Reports `test` as failed for a reason other than its body: it could not run, or what it
+/// built could not be handed to the tests below it. Those tests are only skipped, and a tree
+/// in which nothing failed counts as passed, so the failure has to be reported on this test.
+pub fn report_failure(
+    logger: &mut dyn Logger,
+    test: &'static TestCase,
+    started_at: Instant,
+    info: TestRunInfo,
+    reason: &SkipReason,
+) {
+    logger.log(
+        test,
+        TestStatusUpdate::Started { info },
+        started_at.elapsed(),
+    );
+    logger.log(
+        test,
+        TestStatusUpdate::Finished {
+            panic_message: Some(reason.to_string()),
+        },
+        started_at.elapsed(),
+    );
+}
+
 async fn execute_test(
     logger: &mut dyn Logger,
     test: &'static TestCase,
@@ -125,7 +161,10 @@ async fn execute_test(
 ) -> RunState {
     let mut env = match setup_env(env, &test.env).await {
         Ok(env) => env,
-        Err(reason) => return RunState::Skip(reason),
+        Err(reason) => {
+            report_failure(logger, test, started_at, info, &reason);
+            return RunState::Skip(reason);
+        }
     };
 
     let name = test.name;
@@ -164,7 +203,7 @@ async fn execute_test(
             RunState::Run { test_data, env }
         }
         Err(err) => {
-            let message = extract_string_from_panic_payload(&err)
+            let message = extract_string_from_panic_payload(err.as_ref())
                 .unwrap_or_else(|| "<unknown msg>".to_string());
             logger.get_mut().log(
                 test,
@@ -196,12 +235,12 @@ async fn setup_env(env: EnvData, env_info: &Option<EnvFns>) -> Result<EnvData, S
                     is_empty: false,
                 }),
                 Err(err) => {
-                    let message = extract_string_from_panic_payload(&err)
+                    let message = extract_string_from_panic_payload(err.as_ref())
                         .unwrap_or_else(|| "<unknown msg>".to_string());
                     Err(SkipReason::Panicked {
                         name,
                         location: PanicLocation::Setup,
-                        message,
+                        message: format!("environment `{name}` could not be created: {message}"),
                     })
                 }
             }

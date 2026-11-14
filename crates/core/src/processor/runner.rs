@@ -1,6 +1,7 @@
+use std::iter::once;
 use std::time::Instant;
 
-use super::run_state::RunState;
+use super::run_state::{RunState, report_failure};
 use crate::processor::filter::Filter;
 use crate::processor::logger::{Logger, ParamInfo, TestRunInfo};
 use crate::test_case::{FqFnName, TestParams, Value};
@@ -9,6 +10,8 @@ use crate::tests_tree::{AugmentedTestsTree, TestsTree};
 pub struct TestsRunner {}
 
 impl TestsRunner {
+    /// Runs the tree one leaf at a time. A leaf starts from what the tests above it built, so
+    /// those are executed again for every leaf, except where a test kept what it built.
     pub async fn run_tests(tree: &TestsTree, filter: &dyn Filter, logger: &mut dyn Logger) {
         let tree = AugmentedTestsTree::new(tree, |node| {
             node.params
@@ -16,144 +19,116 @@ impl TestsRunner {
                 .map(|p| (p.params)())
                 .unwrap_or_else(TestParams::new_empty)
         });
-        let mut state = Vec::new();
-        let mut state_idx = 0;
-        state.push(TestState::new(vec![], &tree, RunState::init()));
+        let mut execution = Execution {
+            filter,
+            logger,
+            started_at: Instant::now(),
+        };
 
-        #[derive(Clone, Copy)]
-        enum ProgressAction {
-            ProcessChain,
-            FindBranch,
-        }
-
-        let started_at = Instant::now();
-
-        let mut action = ProgressAction::ProcessChain;
-
-        while !state.is_empty() {
-            let exec_state_len = state.len();
-            let curr = &mut state[state_idx];
-            if let (ProgressAction::ProcessChain, true) = (action, curr.state.process.is_some()) {
-                let process = curr.state.process.take().unwrap();
-                let new_run = match process {
-                    TestProcess::Process { run_state } => {
-                        let (info, param_value) = curr.prepare_test_run();
-
-                        curr.state.run_count += 1;
-                        run_state
-                            .run_test(
-                                filter,
-                                logger,
-                                curr.tree.node.test,
-                                started_at,
-                                info,
-                                param_value,
-                            )
-                            .await
-                    }
-                    TestProcess::AlreadyProcessed { outcome } => outcome,
-                };
-
-                let child_run = if let Some(clone_fns) = curr.tree.node.test.clone.as_ref() {
-                    let has_continuation = exec_state_len > state_idx + 1
-                        || curr.state.childs_idx < curr.tree.childs.len();
-                    if has_continuation {
-                        let clone = new_run.clone_state(clone_fns).await;
-                        curr.state.process =
-                            Some(TestProcess::AlreadyProcessed { outcome: new_run });
-                        Some(clone)
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(new_run)
-                };
-
-                if exec_state_len > state_idx + 1 {
-                    state_idx += 1;
-                    state[state_idx].state.process = Some(TestProcess::Process {
-                        run_state: child_run.expect("a continuation exists"),
-                    });
-                } else if curr.state.childs_idx < curr.tree.childs.len() {
-                    let next = &curr.tree.childs[curr.state.childs_idx];
-                    state_idx += 1;
-                    let path = curr
-                        .path
-                        .iter()
-                        .copied()
-                        .chain(std::iter::once(curr.tree.node.test.name))
-                        .collect();
-                    state.push(TestState::new(
-                        path,
-                        next,
-                        child_run.expect("a continuation exists"),
-                    ));
-                } else {
-                    action = ProgressAction::FindBranch;
-                }
-            } else {
-                if let ProgressAction::FindBranch = action {
-                    curr.advance();
-                    if !curr.is_processed() {
-                        action = ProgressAction::ProcessChain;
-                        state_idx += 1;
-                    } else {
-                        state.pop();
-                    }
-                }
-
-                if state_idx > 0 {
-                    state_idx -= 1;
-                } else if !state.is_empty() {
-                    let root = &mut state[0];
-                    root.state.process = Some(TestProcess::Process {
-                        run_state: RunState::init(),
-                    })
-                }
+        // The tests from the root down to the leaf that runs next.
+        let mut chain = vec![TestState::new(vec![], &tree)];
+        while !chain.is_empty() {
+            while let Some(child) = chain.last().and_then(|test| test.next_child()) {
+                chain.push(child);
+            }
+            execution.run_leaf(&mut chain).await;
+            // On to the next leaf: leave every test that has nothing more to run below it.
+            while chain.last_mut().is_some_and(|test| !test.advance()) {
+                chain.pop();
             }
         }
     }
 }
 
-enum TestProcess {
-    Process { run_state: RunState },
-    AlreadyProcessed { outcome: RunState },
+struct Execution<'a> {
+    filter: &'a dyn Filter,
+    logger: &'a mut dyn Logger,
+    started_at: Instant,
 }
 
-struct State {
-    process: Option<TestProcess>,
-    args_idx: usize,
-    childs_idx: usize,
-    run_count: usize,
+impl Execution<'_> {
+    /// Runs the last test of `chain`, after building what it starts from: the tests above it
+    /// are executed again, down from the nearest one that kept what it built.
+    async fn run_leaf(&mut self, chain: &mut [TestState<'_>]) {
+        let (leaf, above) = chain
+            .split_last_mut()
+            .expect("a chain has at least its root");
+        let resume_at = above.iter().rposition(|test| test.kept.is_some());
+        let mut run_state = RunState::init();
+        for test in &mut above[resume_at.unwrap_or(0)..] {
+            let built = match test.kept.take() {
+                Some(kept) => kept,
+                None => self.execute(test, run_state).await,
+            };
+            run_state = self.hand_on(test, built).await;
+        }
+        self.execute(leaf, run_state).await;
+    }
+
+    async fn execute(&mut self, test: &mut TestState<'_>, run_state: RunState) -> RunState {
+        let (info, param_value) = test.prepare_test_run();
+        test.run_count += 1;
+        run_state
+            .run_test(
+                self.filter,
+                self.logger,
+                test.tree.node.test,
+                self.started_at,
+                info,
+                param_value,
+            )
+            .await
+    }
+
+    /// Hands what `test` built to the test below it. Where a copy can be made, the copy is
+    /// handed on and the original is kept, so that `test` is not executed again for the next
+    /// test below it.
+    async fn hand_on(&mut self, test: &mut TestState<'_>, built: RunState) -> RunState {
+        let case = test.tree.node.test;
+        match built.clone_state(case.clone.as_ref()).await {
+            Ok(Some(copy)) => {
+                test.kept = Some(built);
+                copy
+            }
+            Ok(None) => built,
+            Err(reason) => {
+                // The test passed, but what it built cannot be handed on. That is a failure
+                // of this test, and it is not tried again for the tests that follow.
+                let (info, _) = test.prepare_test_run();
+                report_failure(self.logger, case, self.started_at, info, &reason);
+                test.kept = Some(RunState::Skip(reason.clone()));
+                RunState::Skip(reason)
+            }
+        }
+    }
 }
 
 struct TestState<'a> {
     tree: &'a AugmentedTestsTree<TestParams>,
-    state: State,
     path: Vec<FqFnName<'static>>,
+    args_idx: usize,
+    childs_idx: usize,
+    run_count: usize,
+    /// What the test built with its current parameter, kept for the tests below it that are
+    /// still to run.
+    kept: Option<RunState>,
 }
 
 impl<'a> TestState<'a> {
-    fn new(
-        path: Vec<FqFnName<'static>>,
-        tree: &'a AugmentedTestsTree<TestParams>,
-        run_state: RunState,
-    ) -> Self {
+    fn new(path: Vec<FqFnName<'static>>, tree: &'a AugmentedTestsTree<TestParams>) -> Self {
         Self {
             tree,
             path,
-            state: State {
-                process: Some(TestProcess::Process { run_state }),
-                args_idx: 0,
-                childs_idx: 0,
-                run_count: 0,
-            },
+            args_idx: 0,
+            childs_idx: 0,
+            run_count: 0,
+            kept: None,
         }
     }
 
     fn prepare_test_run(&self) -> (TestRunInfo, Option<Value>) {
-        let (param_info, param_value) = if self.state.args_idx < self.tree.node.extra.len() {
-            let arg = self.tree.node.extra.get(self.state.args_idx);
+        let (param_info, param_value) = if self.args_idx < self.tree.node.extra.len() {
+            let arg = self.tree.node.extra.get(self.args_idx);
             (
                 Some(ParamInfo {
                     headers: arg.header,
@@ -167,37 +142,40 @@ impl<'a> TestState<'a> {
         (
             TestRunInfo {
                 path: self.path.clone(),
-                run_count: self.state.run_count,
+                run_count: self.run_count,
                 param_info,
             },
             param_value,
         )
     }
 
-    fn is_processed(&self) -> bool {
-        self.tree.childs.len() == self.state.childs_idx
-            && self.tree.node.extra.len() == self.state.args_idx
+    /// The child that runs next below this test, if this test is not a leaf.
+    fn next_child(&self) -> Option<TestState<'a>> {
+        let child = self.tree.childs.get(self.childs_idx)?;
+        let path = self
+            .path
+            .iter()
+            .copied()
+            .chain(once(self.tree.node.test.name))
+            .collect();
+        Some(TestState::new(path, child))
     }
 
-    fn advance(&mut self) {
-        if self.state.childs_idx < self.tree.childs.len() {
-            self.state.childs_idx += 1;
-            if self.state.childs_idx == self.tree.childs.len()
-                && self.state.args_idx < self.tree.node.extra.len()
-            {
-                self.state.args_idx += 1;
-                self.state.run_count = 0;
-                self.state.process = None;
-                if self.state.args_idx < self.tree.node.extra.len() {
-                    self.state.childs_idx = 0;
-                }
-            }
-        } else if self.state.args_idx < self.tree.node.extra.len() {
-            self.state.args_idx += 1;
-            self.state.run_count = 0;
-            self.state.process = None;
-            self.state.childs_idx = 0;
+    /// Moves to the next child, or, after the last one, back to the first with the next
+    /// parameter. Returns `false` when nothing is left to run through this test.
+    fn advance(&mut self) -> bool {
+        self.childs_idx += 1;
+        if self.childs_idx < self.tree.childs.len() {
+            return true;
         }
+        self.args_idx += 1;
+        if self.args_idx < self.tree.node.extra.len() {
+            self.childs_idx = 0;
+            self.run_count = 0;
+            self.kept = None;
+            return true;
+        }
+        false
     }
 }
 

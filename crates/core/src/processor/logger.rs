@@ -65,6 +65,15 @@ pub enum SkipReason {
     },
 }
 
+impl std::fmt::Display for SkipReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SkipReason::Panicked { message, .. } => f.write_str(message),
+            SkipReason::Ignored { name } => write!(f, "`{name}` is ignored"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind")]
 pub enum TestStatusUpdate {
