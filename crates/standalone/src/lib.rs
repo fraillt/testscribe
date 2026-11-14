@@ -86,13 +86,10 @@ pub async fn run_async(
     tree.verify(true).map_err(|err| err.to_string())?;
 
     let args = Arguments::from_args();
+    let live = prints_live(&args, std::env::var("RUST_TEST_THREADS").ok().as_deref());
     let mut stdout = std::io::stdout();
     let mut vecout = Vec::new();
-    let output: &mut dyn Write = if args.nocapture {
-        &mut stdout
-    } else {
-        &mut vecout
-    };
+    let output: &mut dyn Write = if live { &mut stdout } else { &mut vecout };
     let filter: &dyn Filter = if args.exact {
         let mut tree1 =
             AugmentedTestsTree::new(&tree, |test| test.tags.contains(&ONLY_THIS_TAG_NAME));
@@ -121,7 +118,8 @@ pub async fn run_async(
     let summary = run_test_tree(tree, filter, &mut printer, args.exact).await;
     printer.print_failures(&summary.failed);
     printer.print_panics(&summary.panics);
-    if !args.nocapture {
+    if !live {
+        // In one piece: other trees print at the same time.
         print!("{}", String::from_utf8(vecout).unwrap());
     }
     if summary.is_success() {
@@ -129,6 +127,19 @@ pub async fn run_async(
     } else {
         Err(format!("Test {test_name} failed."))
     }
+}
+
+/// Whether a standalone tree prints each test as it finishes, or the whole tree at once when
+/// it is done.
+///
+/// The harness runs standalone trees in parallel, and with `--nocapture` their lines would mix
+/// into something nobody can read. So a tree prints live only when it is certain to be alone:
+/// with `--nocapture` and one test thread.
+fn prints_live(args: &Arguments, rust_test_threads: Option<&str>) -> bool {
+    let test_threads = args
+        .test_threads
+        .or_else(|| rust_test_threads.and_then(|threads| threads.parse().ok()));
+    args.nocapture && test_threads == Some(1)
 }
 
 /// Runs tests similarly to `libtest`,
@@ -259,5 +270,34 @@ fn print_list(tree: &TestsTree, ignored: bool, depth: usize) {
 
     for tree in &tree.childs {
         print_list(tree, ignored, depth + 1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(nocapture: bool, test_threads: Option<usize>) -> Arguments {
+        Arguments {
+            nocapture,
+            test_threads,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn standalone_tree_prints_live_only_when_it_runs_alone() {
+        // Captured output is shown by the harness, per test, when the test fails.
+        assert!(!prints_live(&args(false, None), None));
+        assert!(!prints_live(&args(false, Some(1)), None));
+        // Not captured, next to other trees: in one piece, so that the trees do not mix.
+        assert!(!prints_live(&args(true, None), None));
+        assert!(!prints_live(&args(true, Some(4)), None));
+        assert!(!prints_live(&args(true, None), Some("4")));
+        // Not captured and alone: as it happens.
+        assert!(prints_live(&args(true, Some(1)), None));
+        assert!(prints_live(&args(true, None), Some("1")));
+        // The argument wins over the environment, as it does in the harness.
+        assert!(!prints_live(&args(true, Some(4)), Some("1")));
     }
 }

@@ -26,6 +26,9 @@ This changelog covers all crates in the workspace
 
 ### Changed
 
+- with `--nocapture`, a standalone tree is printed in one piece when it has finished, so the lines
+  of trees running in parallel no longer mix. It still prints test by test when it runs alone
+  (`--test-threads=1`).
 - a test that failed or was skipped is no longer executed again for every test below it. An
   environment that waits 30 seconds for a database that is down is waited for once, not once per
   leaf of the tree.
