@@ -7,15 +7,11 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use testscribe::processor::filter::NoFilter;
 use testscribe::report::basic::CheckRun;
-use testscribe::standalone::logger::printer::TestFormatter;
-use testscribe::standalone::logger::summary::ExecutionSummary;
-use testscribe::standalone::run_test_tree;
 use testscribe::test_args::{Env, Environment, Given};
 use testscribe::{CASES, testscribe};
 
-use crate::utils::tree::create_and_verify_tt;
+use crate::utils::run::run_tree;
 
 mod utils;
 
@@ -130,60 +126,9 @@ fn root_with_panicking_check() {
     then!("order is found").run(|| -> bool { panic!("order 17 not found") });
 }
 
-struct Run {
-    summary: ExecutionSummary,
-    output: String,
-}
-
-impl Run {
-    /// The tests that failed, each with the details of its failures.
-    fn failed(&self) -> Vec<(&str, Vec<&str>)> {
-        self.summary
-            .failed
-            .iter()
-            .map(|(name, failures)| {
-                (
-                    name.name,
-                    failures.iter().map(|f| f.details.as_str()).collect(),
-                )
-            })
-            .collect()
-    }
-
-    /// The printed lines naming a test, without timings and colors: the status mark and the name.
-    fn narrative(&self) -> Vec<String> {
-        self.output
-            .lines()
-            .filter(|line| line.contains("Given") || line.contains("When"))
-            .map(|line| {
-                let mark = &line[..1];
-                let name = line.rsplit("\u{1b}[0m ").next().unwrap();
-                let name = name.rsplit("Given ").next().unwrap();
-                let name = name.rsplit("When ").next().unwrap();
-                format!("{mark} {name}")
-            })
-            .collect()
-    }
-}
-
-async fn run_tree(root: &str) -> Run {
-    let tree = create_and_verify_tt(&CASES, false)
-        .unwrap()
-        .into_iter()
-        .find(|tree| tree.node.name.name == root)
-        .unwrap();
-    let mut output = Vec::new();
-    let mut printer = TestFormatter::new(&mut output);
-    let summary = run_test_tree(tree, &NoFilter, &mut printer, false).await;
-    Run {
-        summary,
-        output: String::from_utf8(output).unwrap(),
-    }
-}
-
 #[tokio::test]
 async fn root_fails_when_its_environment_cannot_be_created() {
-    let run = run_tree("RootNeedingDatabase").await;
+    let run = run_tree(&CASES, "RootNeedingDatabase").await;
 
     assert!(!run.summary.is_success());
     assert_eq!(
@@ -206,7 +151,7 @@ async fn root_fails_when_its_environment_cannot_be_created() {
 
 #[tokio::test]
 async fn leaf_fails_when_its_environment_cannot_be_created() {
-    let run = run_tree("RootWithoutEnvironment").await;
+    let run = run_tree(&CASES, "RootWithoutEnvironment").await;
 
     assert!(!run.summary.is_success());
     assert_eq!(
@@ -226,7 +171,7 @@ async fn leaf_fails_when_its_environment_cannot_be_created() {
 
 #[tokio::test]
 async fn test_fails_when_its_state_cannot_be_cloned_for_its_children() {
-    let run = run_tree("RootWithClonedState").await;
+    let run = run_tree(&CASES, "RootWithClonedState").await;
 
     assert!(!run.summary.is_success());
     assert_eq!(
@@ -249,7 +194,7 @@ async fn test_fails_when_its_state_cannot_be_cloned_for_its_children() {
 
 #[tokio::test]
 async fn test_fails_when_it_panics_while_executed_again_for_a_later_child() {
-    let run = run_tree("RootFailingOnSecondRun").await;
+    let run = run_tree(&CASES, "RootFailingOnSecondRun").await;
 
     assert!(!run.summary.is_success());
     assert_eq!(
@@ -269,7 +214,7 @@ async fn test_fails_when_it_panics_while_executed_again_for_a_later_child() {
 
 #[tokio::test]
 async fn failure_of_panicking_test_carries_the_panic_message() {
-    let run = run_tree("RootPanickingInItsBody").await;
+    let run = run_tree(&CASES, "RootPanickingInItsBody").await;
 
     assert_eq!(
         run.failed(),
@@ -279,7 +224,7 @@ async fn failure_of_panicking_test_carries_the_panic_message() {
 
 #[tokio::test]
 async fn failure_of_panicking_check_carries_the_panic_message() {
-    let run = run_tree("RootWithPanickingCheck").await;
+    let run = run_tree(&CASES, "RootWithPanickingCheck").await;
 
     assert_eq!(
         run.failed(),
@@ -289,7 +234,7 @@ async fn failure_of_panicking_check_carries_the_panic_message() {
 
 #[tokio::test]
 async fn failed_test_is_not_executed_again_for_every_test_below_it() {
-    let run = run_tree("RootNeedingSlowDatabase").await;
+    let run = run_tree(&CASES, "RootNeedingSlowDatabase").await;
 
     assert_eq!(SLOW_DATABASE_ATTEMPTS.load(Ordering::SeqCst), 1);
     assert_eq!(

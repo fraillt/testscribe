@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use testscribe::test_case::FqFnName;
+pub mod run;
 pub mod tree;
 
 pub fn create_fq_name(fq_name: &'static str) -> FqFnName<'static> {

@@ -136,6 +136,87 @@ where
     );
 }
 
+/// Something that can have nothing in it: a collection or a text. What the
+/// [emptiness checks](CheckEmpty) need to know about a value; implement it for a collection of
+/// your own to use them on it.
+pub trait MaybeEmpty {
+    /// Whether there is nothing in it.
+    fn is_empty(&self) -> bool;
+}
+
+macro_rules! maybe_empty {
+    ($(<$($param:ident),*> $ty:ty),* $(,)?) => {$(
+        impl<$($param),*> MaybeEmpty for $ty {
+            fn is_empty(&self) -> bool {
+                <$ty>::is_empty(self)
+            }
+        }
+    )*};
+}
+
+maybe_empty! {
+    <> String,
+    <> str,
+    <T> [T],
+    <T> Vec<T>,
+    <T> std::collections::VecDeque<T>,
+    <T> std::collections::BTreeSet<T>,
+    <K, V> std::collections::BTreeMap<K, V>,
+    <T, S> std::collections::HashSet<T, S>,
+    <K, V, S> std::collections::HashMap<K, V, S>,
+}
+
+impl<T: MaybeEmpty + ?Sized> MaybeEmpty for &T {
+    fn is_empty(&self) -> bool {
+        T::is_empty(self)
+    }
+}
+
+/// Emptiness checks for [`VerifyValue`]: `then!(events).is_empty()`,
+/// `then!(events).is_not_empty()`. For collections and texts, see [`MaybeEmpty`].
+// These are checks, not questions: like every check they use up the value they report on.
+#[allow(clippy::wrong_self_convention)]
+pub trait CheckEmpty {
+    /// Checks that there is nothing in the value; reports `<name> is empty`.
+    fn is_empty(self);
+
+    /// Checks that there is something in the value; reports `<name> is not empty`.
+    fn is_not_empty(self);
+}
+
+impl<T> CheckEmpty for VerifyValue<'_, T>
+where
+    T: MaybeEmpty + Debug,
+{
+    fn is_empty(self) {
+        let this = VerifyValueExposed::new(self);
+        this.reporter.set_outcome(
+            format!("{} is empty", this.var_name),
+            if this.actual_value.is_empty() {
+                VerifyOutcome::Success
+            } else {
+                VerifyOutcome::Failure {
+                    details: format!("actual: {:?}", this.actual_value),
+                }
+            },
+        );
+    }
+
+    fn is_not_empty(self) {
+        let this = VerifyValueExposed::new(self);
+        this.reporter.set_outcome(
+            format!("{} is not empty", this.var_name),
+            if this.actual_value.is_empty() {
+                VerifyOutcome::Failure {
+                    details: format!("actual: {:?}", this.actual_value),
+                }
+            } else {
+                VerifyOutcome::Success
+            },
+        );
+    }
+}
+
 /// Closure check for [`VerifyStatement`]: `then!("payment is accepted").run(|| ...)`.
 pub trait CheckRun {
     /// Runs the closure and reports the statement as the check outcome.

@@ -86,7 +86,8 @@ pub use testscribe_core::clone_async::CloneAsync;
 /// ([`Given`](test_args::Given), [`Env`](test_args::Env), [`Param`](test_args::Param) and the
 /// [`Environment`](test_args::Environment) trait), every built-in check so the right extension
 /// trait is always in scope ([`eq`/`ne`](report::basic::CheckEq),
-/// [`contains`](report::basic::CheckContains), [`run`](report::basic::CheckRun),
+/// [`contains`](report::basic::CheckContains),
+/// [`is_empty`/`is_not_empty`](report::basic::CheckEmpty), [`run`](report::basic::CheckRun),
 /// [`run_async`](report::basic::CheckAsyncRun), [`params`](report::basic::CheckParams)), the
 /// [`CloneAsync`] and [`ParamDisplay`] derives, and the full toolkit for writing custom checks
 /// ([`VerifyValue`](report::VerifyValue) / [`VerifyValueExposed`](report::VerifyValueExposed) and
@@ -103,7 +104,9 @@ pub mod prelude {
     pub use crate::test_args::{Env, Environment, Given, Param};
 
     // Built-in checks behind the `then!` macro — one extension trait per check form.
-    pub use crate::report::basic::{CheckAsyncRun, CheckContains, CheckEq, CheckParams, CheckRun};
+    pub use crate::report::basic::{
+        CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckParams, CheckRun,
+    };
 
     // Building blocks for writing project-local custom checks, for both the value form
     // (`then!(x)`) and the statement form (`then!("...")`).
