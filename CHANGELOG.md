@@ -13,6 +13,11 @@ This changelog covers all crates in the workspace
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- built-in checks `is_empty` and `is_not_empty` for collections and texts:
+  `then!(sent_emails).is_empty()` reports `Then sent_emails is empty`.
+
 ### Fixed
 
 - a test tree passed although its tests could not run. A panic while an environment was created,

@@ -34,8 +34,9 @@ Generic assertions can become noisy and low-signal in both code and output, espe
 **How `testscribe` helps:**
 You can add project-local checks on `VerifyValue` so assertions read like domain language and output becomes clearer for humans.
 
-Equality (`eq`/`ne`) and containment (`contains`, for `Vec<T>` membership and `String`/`&str`
-substrings) are built in; reach for a custom check when those don't express the domain concept.
+Equality (`eq`/`ne`), containment (`contains`, for `Vec<T>` membership and `String`/`&str`
+substrings) and emptiness (`is_empty`/`is_not_empty`, for collections and texts) are built in;
+reach for a custom check when those don't express the domain concept.
 
 **Example:**
 - Instead of long pattern matches on nested errors, add a targeted check like `.has_valid_email(...)` or `.rejected_as_err_kind("...")`.

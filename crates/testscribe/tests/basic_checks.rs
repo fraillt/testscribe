@@ -1,9 +1,11 @@
 // This file is the reference for the built-in check forms, so it imports each check trait
 // explicitly to show which trait powers which `then!` form: `CheckEq` -> `.eq`/`.ne`,
-// `CheckContains` -> `.contains`, `CheckRun` -> `.run`, `CheckAsyncRun` -> `.run_async`,
-// `CheckParams` -> `.params`. Real test suites don't list these — `use testscribe::prelude::*;`
+// `CheckContains` -> `.contains`, `CheckEmpty` -> `.is_empty`/`.is_not_empty`,
+// `CheckRun` -> `.run`, `CheckAsyncRun` -> `.run_async`, `CheckParams` -> `.params`. Real test suites don't list these — `use testscribe::prelude::*;`
 // re-exports all of them at once (see basic_tests_tree.rs).
-use testscribe::report::basic::{CheckAsyncRun, CheckContains, CheckEq, CheckParams, CheckRun};
+use testscribe::report::basic::{
+    CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckParams, CheckRun,
+};
 use testscribe::{ParamDisplay, testscribe};
 
 /// Running this test will give this outcome:
@@ -77,6 +79,27 @@ fn containment_checks() {
 
     let message = "payment was declined".to_string();
     then!(message).contains("declined");
+}
+
+/// The built-in emptiness checks work on collections and texts. They say what is meant where
+/// comparing with an empty value would not: `then!(events).eq(Vec::<Event>::new())`.
+/// Running this test will give this outcome:
+/// ```text
+/// | 0.012ms|Given emptiness checks
+/// |       -|  Then sent_emails is empty
+/// |       -|  And error_message is empty
+/// |       -|  And open_orders is not empty
+/// ```
+#[testscribe(standalone)]
+fn emptiness_checks() {
+    let sent_emails: Vec<String> = Vec::new();
+    then!(sent_emails).is_empty();
+
+    let error_message = "";
+    then!(error_message).is_empty();
+
+    let open_orders = vec![17, 18];
+    then!(open_orders).is_not_empty();
 }
 
 /// Running this test will give this outcome:
