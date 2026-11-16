@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{Connection, OptionalExtension, Result, params};
 use serde::{Deserialize, Serialize};
 
-use crate::outcome::{Status, TestOutcome, TestPath};
+use crate::outcome::{Status, TestOutcome, TestPath, Timing};
 
 /// The batch of the runs that name none. It is never stored.
 pub const DEFAULT_BATCH: &str = "default";
@@ -38,6 +38,11 @@ const SCHEMA: &str = "
         ord INTEGER NOT NULL,
         status TEXT NOT NULL,
         text TEXT NOT NULL,
+        -- How often the test was executed in the run of its tree, and the time in the test
+        -- itself and in getting it going, in microseconds.
+        runs INTEGER NOT NULL DEFAULT 0,
+        test_us INTEGER NOT NULL DEFAULT 0,
+        setup_us INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (batch, binary, path)
     ) WITHOUT ROWID;
 ";
@@ -98,6 +103,8 @@ pub struct StoredTest {
     pub path: TestPath,
     pub status: Status,
     pub text: String,
+    #[serde(flatten)]
+    pub timing: Timing,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,8 +168,19 @@ impl Store {
             None => Connection::open_in_memory()?,
         };
         let memory = Connection::open_in_memory()?;
-        stored.execute_batch(SCHEMA)?;
         memory.execute_batch(SCHEMA)?;
+        stored.execute_batch(SCHEMA)?;
+        // A database from before the tests were timed.
+        let timed = stored
+            .prepare("SELECT 1 FROM pragma_table_info('tests') WHERE name = 'runs'")?
+            .exists([])?;
+        if !timed {
+            stored.execute_batch(
+                "ALTER TABLE tests ADD COLUMN runs INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE tests ADD COLUMN test_us INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE tests ADD COLUMN setup_us INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
         Ok(Self { stored, memory })
     }
 
@@ -248,10 +266,13 @@ impl Store {
         }
         {
             let mut save = transaction.prepare(
-                "INSERT INTO tests (batch, binary, path, root, ord, status, text)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                "INSERT INTO tests
+                    (batch, binary, path, root, ord, status, text, runs, test_us, setup_us)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                  ON CONFLICT (batch, binary, path) DO UPDATE
-                 SET ord = excluded.ord, status = excluded.status, text = excluded.text",
+                 SET ord = excluded.ord, status = excluded.status, text = excluded.text,
+                     runs = excluded.runs, test_us = excluded.test_us,
+                     setup_us = excluded.setup_us",
             )?;
             for (nr, outcome) in outcomes.iter().enumerate() {
                 // A test the tree did not announce comes after the ones it did.
@@ -267,6 +288,9 @@ impl Store {
                     ord as i64,
                     outcome.status.as_str(),
                     outcome.text,
+                    outcome.timing.runs,
+                    outcome.timing.test_us as i64,
+                    outcome.timing.setup_us as i64,
                 ])?;
             }
         }
@@ -376,7 +400,8 @@ impl Store {
             return Ok(None);
         };
         let mut query = self.connection(batch).prepare(
-            "SELECT binary, path, status, text FROM tests WHERE batch = ?1
+            "SELECT binary, path, status, text, runs, test_us, setup_us
+             FROM tests WHERE batch = ?1
              ORDER BY binary, root, ord, path",
         )?;
         let rows = query.query_map([id], |row| {
@@ -385,6 +410,11 @@ impl Store {
                 path: serde_json::from_str(&row.get::<_, String>(1)?).unwrap_or_default(),
                 status: Status::parse(&row.get::<_, String>(2)?),
                 text: row.get(3)?,
+                timing: Timing {
+                    runs: row.get(4)?,
+                    test_us: row.get::<_, i64>(5)? as u64,
+                    setup_us: row.get::<_, i64>(6)? as u64,
+                },
             })
         })?;
         rows.collect::<Result<Vec<_>>>().map(Some)
@@ -509,6 +539,11 @@ mod tests {
             path: path(names),
             status,
             text: text.to_string(),
+            timing: Timing {
+                runs: 2,
+                test_us: 300,
+                setup_us: 40,
+            },
         }
     }
 
@@ -636,6 +671,11 @@ mod tests {
         assert_eq!(batches[0].name, "work");
         assert_eq!((batches[0].passed, batches[0].failed), (2, 1));
         assert_eq!(batches[0].mode, RunMode::NewAndFailed);
+        let test = &store.batch("work").unwrap().unwrap().tests[0];
+        assert_eq!(
+            (test.timing.runs, test.timing.test_us, test.timing.setup_us),
+            (2, 300, 40)
+        );
         assert!(store.batch(DEFAULT_BATCH).unwrap().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }

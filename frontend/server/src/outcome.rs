@@ -38,11 +38,29 @@ impl Status {
 /// as `module::path::TestName`.
 pub type TestPath = Vec<String>;
 
+/// How often a test was executed in a run of its tree, and how long that took in all.
+///
+/// A test is executed again for every test below it that starts from what it built, unless
+/// what it built could be copied. The time of a tree is the time of all its tests and of
+/// all their setups.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Timing {
+    /// The executions of the test, the first one and every one after it.
+    pub runs: u32,
+    /// The time in the test itself, over all its executions, in microseconds.
+    pub test_us: u64,
+    /// The time it took to get the test going, over all its executions, in microseconds:
+    /// from the end of the test before it to its own start. That is where its environment is
+    /// created, and where the state and the environment it starts from are copied.
+    pub setup_us: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestOutcome {
     pub path: TestPath,
     pub status: Status,
     pub text: String,
+    pub timing: Timing,
 }
 
 /// One execution of a test, while it is going on.
@@ -53,6 +71,8 @@ struct Run {
     items: usize,
     failed: bool,
     again: bool,
+    started_us: u64,
+    setup_us: u64,
 }
 
 /// Follows the tests of one tree as they report, and keeps the outcome of each test that
@@ -63,6 +83,9 @@ pub struct TreeOutcome {
     index: HashMap<TestPath, usize>,
     current: Option<Run>,
     told_as_failed: HashSet<TestPath>,
+    timings: HashMap<TestPath, Timing>,
+    /// When the test before the current one ended, since the tree started.
+    last_end_us: u64,
 }
 
 fn full_name(name: &Value) -> String {
@@ -131,6 +154,7 @@ impl TreeOutcome {
     /// Takes a `test` message of the tree.
     pub fn apply(&mut self, event: &Value) {
         let update = &event["update"];
+        let elapsed_us = event["elapsed_us"].as_u64().unwrap_or(self.last_end_us);
         match update["kind"].as_str() {
             Some("Started") => {
                 let info = &update["info"];
@@ -155,6 +179,8 @@ impl TreeOutcome {
                     items: 0,
                     failed: false,
                     again,
+                    started_us: elapsed_us,
+                    setup_us: elapsed_us.saturating_sub(self.last_end_us),
                 });
             }
             Some("Updated") => {
@@ -202,6 +228,11 @@ impl TreeOutcome {
                 let Some(mut run) = self.current.take() else {
                     return;
                 };
+                let timing = self.timings.entry(run.path.clone()).or_default();
+                timing.runs += 1;
+                timing.test_us += elapsed_us.saturating_sub(run.started_us);
+                timing.setup_us += run.setup_us;
+                self.last_end_us = elapsed_us;
                 if let Some(panic) = update["panic_message"].as_str() {
                     run.failed = true;
                     marked(true, &format!("panicked: {panic}"), &mut run.lines);
@@ -250,14 +281,23 @@ impl TreeOutcome {
             }
             None => {
                 self.index.insert(path.clone(), self.tests.len());
-                self.tests.push(TestOutcome { path, status, text });
+                self.tests.push(TestOutcome {
+                    path,
+                    status,
+                    text,
+                    timing: Timing::default(),
+                });
             }
         }
     }
 
     /// The tests that ran so far, in the order they first ran.
-    pub fn tests(&self) -> &[TestOutcome] {
-        &self.tests
+    pub fn tests(&self) -> Vec<TestOutcome> {
+        let mut tests = self.tests.clone();
+        for test in &mut tests {
+            test.timing = self.timings.get(&test.path).copied().unwrap_or_default();
+        }
+        tests
     }
 }
 
@@ -272,7 +312,12 @@ mod tests {
     }
 
     fn event(test: &str, update: Value) -> Value {
-        json!({ "kind": "test", "root": "orders::OrderPlaced", "test": name(test), "update": update, "elapsed_us": 5 })
+        json!({ "kind": "test", "root": "orders::OrderPlaced", "test": name(test), "update": update })
+    }
+
+    fn at(elapsed_us: u64, mut event: Value) -> Value {
+        event["elapsed_us"] = json!(elapsed_us);
+        event
     }
 
     fn started(test: &str, above: &[&str], run_count: u32) -> Value {
@@ -303,7 +348,7 @@ mod tests {
     fn outcome_of(events: &[Value]) -> Vec<TestOutcome> {
         let mut tree = TreeOutcome::default();
         events.iter().for_each(|event| tree.apply(event));
-        tree.tests().to_vec()
+        tree.tests()
     }
 
     #[test]
@@ -334,11 +379,13 @@ mod tests {
                     path: vec!["orders::OrderPlaced".into()],
                     status: Status::Passed,
                     text: "Given order placed".into(),
+                    timing: Timing { runs: 1, ..Timing::default() },
                 },
                 TestOutcome {
                     path: vec!["orders::OrderPlaced".into(), "orders::OrderPaid".into()],
                     status: Status::Failed,
                     text: "When order paid\n  Then order number equals 17\n✗ And total equals 5\n      expected: 5\n      actual: 6".into(),
+                    timing: Timing { runs: 1, ..Timing::default() },
                 },
             ]
         );
@@ -346,14 +393,14 @@ mod tests {
 
     #[test]
     fn where_a_check_is_in_the_sources_is_not_part_of_the_outcome() {
-        let at = |line_nr| {
+        let on_line = |line_nr| {
             outcome_of(&[
                 started("OrderPlaced", &[], 0),
                 verified("OrderPlaced", "order is new", line_nr, None),
                 finished("OrderPlaced", None),
             ])
         };
-        assert_eq!(at(20), at(87));
+        assert_eq!(on_line(20), on_line(87));
     }
 
     #[test]
@@ -400,7 +447,51 @@ mod tests {
                 path: vec!["orders::OrderPlaced".into(), "orders::OrderShipped".into()],
                 status: Status::Skipped,
                 text: "When order shipped\n– skipped: no connection".into(),
+                timing: Timing::default(),
             }]
         );
+    }
+
+    /// `OrderPlaced` is executed for itself and again for the second test below it. The time
+    /// between two tests is the setup of the one that follows.
+    #[test]
+    fn time_of_a_tree_is_the_time_of_its_tests_and_of_their_setups() {
+        let below = &["OrderPlaced"];
+        let tests = outcome_of(&[
+            at(10, started("OrderPlaced", &[], 0)),
+            at(110, finished("OrderPlaced", None)),
+            at(115, started("OrderPaid", below, 0)),
+            at(145, finished("OrderPaid", None)),
+            at(150, started("OrderPlaced", &[], 1)),
+            at(240, finished("OrderPlaced", None)),
+            at(260, started("OrderCancelled", below, 0)),
+            at(300, finished("OrderCancelled", None)),
+        ]);
+        let timings: Vec<Timing> = tests.iter().map(|test| test.timing).collect();
+        assert_eq!(
+            timings,
+            vec![
+                Timing {
+                    runs: 2,
+                    test_us: 190,
+                    setup_us: 15
+                },
+                Timing {
+                    runs: 1,
+                    test_us: 30,
+                    setup_us: 5
+                },
+                Timing {
+                    runs: 1,
+                    test_us: 40,
+                    setup_us: 20
+                },
+            ]
+        );
+        let total: u64 = timings
+            .iter()
+            .map(|timing| timing.test_us + timing.setup_us)
+            .sum();
+        assert_eq!(total, 300);
     }
 }

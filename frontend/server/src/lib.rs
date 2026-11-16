@@ -288,7 +288,7 @@ impl Hub {
             &session.binary,
             root,
             tree.whole_tree,
-            tree.outcome.tests(),
+            &tree.outcome.tests(),
             &session.place,
         ));
     }

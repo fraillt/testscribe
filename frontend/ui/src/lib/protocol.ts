@@ -94,6 +94,12 @@ export interface StoredTest extends TestId {
   status: Status
   /** What the test said the last time it ran, as the terminal would print it. */
   text: string
+  /** How often the test was executed in the run of its tree: again for every branch below it. */
+  runs: number
+  /** The time in the test itself, over all its executions, in microseconds. */
+  test_us: number
+  /** The time to get the test going, over all its executions: environment and copies. */
+  setup_us: number
 }
 
 export interface Batch {

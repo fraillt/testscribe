@@ -52,6 +52,20 @@ never stored, and gone when the server stops. Everything else works the same for
 Without `--no-fail-fast`, cargo stops at the first test binary that fails, and the batch does not
 hear of the binaries after it.
 
+### Executions and times
+
+On the page of a batch every test shows how long it took, and how often it was executed when
+that was more than once. Click the time for the test with its branches, the tests below it: for
+each of them how often it was executed, the time in the test itself, and its setup time, and
+all of that summed up.
+
+A test is executed again for every branch below it that starts from what it built, unless what
+it built can be copied. Setup is the time before a test starts, since the test before it ended:
+that is where its environment is created, and where the state and the environment it starts
+from are copied. So the test and setup times of a whole tree add up to the time the tree took.
+The times are those of the last run of each test, and are not part of what batches are compared
+by.
+
 ### Comparing batches
 
 In the UI, open a batch and pick the one to compare it with. Or, without the server running:
@@ -106,7 +120,8 @@ The UI may send:
 - `{"kind": "clear"}` to forget the sessions that are over
 - `{"kind": "get_batch", "name"}`, answered with `{"kind": "batch", "name", "batch"}`: the batch
   with its `mode`, its `selected` tests and all its `tests`, each with `binary`, `path` (the names
-  from the root down), `status` and `text`; `null` if there is no such batch
+  from the root down), `status`, `text`, and how it ran: `runs`, `test_us` and `setup_us`; `null`
+  if there is no such batch
 - `{"kind": "set_run", "batch", "mode", "selected": [{"binary", "path"}]}` to set what the batch
   runs the next time; without `selected`, the tests picked earlier stay picked
 - `{"kind": "diff", "from", "to"}`, answered with `{"kind": "diff", "from", "to", "changes"}`:
