@@ -147,19 +147,21 @@
         <span class="text">
           <OutcomeText lines={test.text.split('\n').map((text) => ({ text }))} />
         </span>
-        <button
-          class="time"
-          class:open={timed === key(test)}
-          title="executions and times of this test and its branches"
-          onclick={() => (timed = timed === key(test) ? null : key(test))}
-        >
-          {#if test.runs}
-            {#if test.runs > 1}<span class="runs">{test.runs}×</span>{/if}
-            {duration(test.test_us + test.setup_us)}
-          {:else}–{/if}
-        </button>
+        {#if frontend.showTimes}
+          <button
+            class="time"
+            class:open={timed === key(test)}
+            title="executions and times of this test and its branches"
+            onclick={() => (timed = timed === key(test) ? null : key(test))}
+          >
+            {#if test.runs}
+              {#if test.runs > 1}<span class="runs">{test.runs}×</span>{/if}
+              {duration(test.test_us + test.setup_us)}
+            {:else}–{/if}
+          </button>
+        {/if}
       </div>
-      {#if timed === key(test)}
+      {#if frontend.showTimes && timed === key(test)}
         {@const below = branches(test)}
         <TimingPanel
           depth={test.path.length - 1}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { duration, pathKey, title, type Tree } from './narrative'
   import type { FqName, TestNode } from './protocol'
+  import { frontend } from './store.svelte'
   import TimingPanel, { type TimingRow } from './TimingPanel.svelte'
 
   let { tree }: { tree: Tree } = $props()
@@ -48,7 +49,7 @@
     </span>
   </header>
 
-  <div class="narrative">
+  <div class="narrative" class:untimed={!frontend.showTimes}>
     {#if tree.steps.length === 0}
       {@render outline(tree.outline, 0)}
     {/if}
@@ -128,7 +129,7 @@
           </div>
         {/if}
       {/each}
-      {#if timed === idx}
+      {#if frontend.showTimes && timed === idx}
         <TimingPanel inset={8.25} depth={step.depth} wholeTree={step.depth === 0} rows={branches(step.path)} />
       {/if}
     {/each}
@@ -203,6 +204,13 @@
   }
   .step {
     margin-top: 0.15rem;
+  }
+  .untimed .step,
+  .untimed .line {
+    grid-template-columns: 1.5rem 1fr;
+  }
+  .untimed .time {
+    display: none;
   }
   .text {
     padding-left: calc(var(--depth) * 1.25rem);

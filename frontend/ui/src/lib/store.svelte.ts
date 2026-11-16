@@ -54,6 +54,14 @@ function applyEvent(session: Session, event: TestsEvent): void {
   if (tree) apply(tree, event)
 }
 
+function remembered(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === 'true'
+  } catch {
+    return false
+  }
+}
+
 class Frontend {
   sessions = $state<Session[]>([])
   batches = $state<BatchSummary[]>([])
@@ -64,6 +72,8 @@ class Frontend {
   /** What is looked at: the server is asked for it again whenever the batches change. */
   #watched: { kind: 'get_batch'; name: string } | { kind: 'diff'; from: string; to: string } | null = null
   connected = $state(false)
+  /** Whether the tests are shown with their executions and times. Kept by the browser. */
+  showTimes = $state(remembered('testscribe.showTimes'))
   address = serverAddress()
   #socket: WebSocket | null = null
 
@@ -79,6 +89,15 @@ class Frontend {
       this.connected = false
       // The server starts every connection with all it knows, so nothing is lost by this.
       setTimeout(() => this.connect(), 1000)
+    }
+  }
+
+  setShowTimes(show: boolean): void {
+    this.showTimes = show
+    try {
+      localStorage.setItem('testscribe.showTimes', String(show))
+    } catch {
+      // Not remembered, then.
     }
   }
 

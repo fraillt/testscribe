@@ -42,6 +42,15 @@
     {frontend.address}
   </p>
 
+  <label class="option">
+    <input
+      type="checkbox"
+      checked={frontend.showTimes}
+      onchange={(event) => frontend.setShowTimes(event.currentTarget.checked)}
+    />
+    show times
+  </label>
+
   {#if frontend.batches.length}
     <h4>batches</h4>
     <nav>
@@ -149,7 +158,20 @@
   .connection {
     font-size: 0.75rem;
     color: var(--ok);
-    margin: 0.25rem 0 1rem;
+    margin: 0.25rem 0 0.75rem;
+  }
+  .option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .option input {
+    margin: 0;
   }
   .connection.off {
     color: var(--bad);
