@@ -58,7 +58,8 @@
         {#if step.durationUs === null}
           <span class="time"></span>
         {:else}
-          {@const runs = tree.timings[step.path]?.runs ?? 1}
+          {@const timing = tree.timings[step.path]}
+          {@const runs = timing?.runs ?? 1}
           <button
             class="time"
             class:open={timed === idx}
@@ -66,7 +67,7 @@
             onclick={() => (timed = timed === idx ? null : idx)}
           >
             {#if runs > 1}<span class="runs">{runs}×</span>{/if}
-            {duration(step.durationUs)}
+            {duration(timing ? timing.test_us + timing.setup_us : step.durationUs)}
           </button>
         {/if}
         <span class="text">
