@@ -27,6 +27,11 @@ This changelog covers all crates in the workspace
 - `TESTSCRIBE_ONLY=<test name> cargo test` runs only the path from the root to that test, for a
   test anywhere in a standalone tree. Naming a test below the root to `cargo test` itself runs
   nothing, because the harness only knows the roots.
+- `detached`: `TESTSCRIBE_BATCH_ID=<any text>` names the batch a run belongs to, and the test
+  binary tells it to the frontend. The frontend in `frontend/` stores named batches in SQLite,
+  compares two of them by what their tests say (added, deleted and modified tests), and remembers
+  per batch what to run the next time: everything, the tests selected in the UI, or the new and
+  the failed ones.
 
 ### Fixed
 

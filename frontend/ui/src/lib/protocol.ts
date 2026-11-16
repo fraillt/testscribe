@@ -15,6 +15,8 @@ export interface Hello {
   kind: 'hello'
   protocol: number
   binary: string
+  /** The batch named with `TESTSCRIBE_BATCH_ID`, if any. */
+  batch?: string | null
   manifest_dir: string | null
   cwd: string | null
   pid: number
@@ -59,13 +61,68 @@ export type TestsEvent =
 
 export interface SessionData {
   id: number
+  /** The batch the results of the session belong to. */
+  batch: string
   hello: Hello
   events: TestsEvent[]
   open: boolean
 }
 
+export type Status = 'passed' | 'failed' | 'skipped'
+
+/** What a batch runs the next time its tests ask. */
+export type RunMode = 'all' | 'selected' | 'new_and_failed'
+
+export interface BatchSummary {
+  name: string
+  /** Whether the batch is in the database, or only in the memory of the server. */
+  stored: boolean
+  mode: RunMode
+  updated_at: number
+  passed: number
+  failed: number
+  skipped: number
+}
+
+/** A test of some test binary: the names from the root of its tree down to it. */
+export interface TestId {
+  binary: string
+  path: string[]
+}
+
+export interface StoredTest extends TestId {
+  status: Status
+  /** What the test said the last time it ran, as the terminal would print it. */
+  text: string
+}
+
+export interface Batch {
+  name: string
+  stored: boolean
+  mode: RunMode
+  selected: TestId[]
+  tests: StoredTest[]
+}
+
+export interface Change extends TestId {
+  kind: 'added' | 'deleted' | 'modified'
+  from: Status | null
+  to: Status | null
+  lines: { side: ' ' | '+' | '-'; text: string }[]
+}
+
+export interface Diff {
+  from: string
+  to: string
+  /** `null` when one of the batches is not there. */
+  changes: Change[] | null
+}
+
 export type ServerMessage =
-  | { kind: 'snapshot'; sessions: SessionData[] }
+  | { kind: 'snapshot'; sessions: SessionData[]; batches: BatchSummary[] }
   | { kind: 'session_opened'; session: SessionData }
   | { kind: 'event'; session: number; event: TestsEvent }
   | { kind: 'session_closed'; session: number }
+  | { kind: 'batches'; batches: BatchSummary[] }
+  | { kind: 'batch'; name: string; batch: Batch | null }
+  | ({ kind: 'diff' } & Diff)

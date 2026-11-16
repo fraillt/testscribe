@@ -14,8 +14,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::FRONTEND_ENV_NAME;
 use crate::protocol::{FromFrontend, PROTOCOL_VERSION, Select, ToFrontend};
+use crate::{BATCH_ENV_NAME, FRONTEND_ENV_NAME};
 
 /// How long a frontend may take to accept the connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -114,6 +114,9 @@ fn hello(test_cases: &'static [TestCase]) -> String {
     ToFrontend::Hello {
         protocol: PROTOCOL_VERSION,
         binary,
+        batch: std::env::var(BATCH_ENV_NAME)
+            .ok()
+            .filter(|batch| !batch.is_empty()),
         manifest_dir: std::env::var("CARGO_MANIFEST_DIR").ok(),
         cwd: std::env::current_dir()
             .ok()

@@ -20,6 +20,15 @@ TESTSCRIBE_FRONTEND=127.0.0.1:7357 cargo test
 
 Without the variable, or when nothing answers at that address, the tests run as usual.
 
+`TESTSCRIBE_BATCH_ID` names the batch the results belong to, with any text. The frontend stores a
+named batch, compares two of them, and remembers per batch what to run the next time: everything,
+the tests selected in the UI, or the new and the failed ones. Without a name the results go to the
+batch `default`, which the frontend keeps in memory only.
+
+```text
+TESTSCRIBE_FRONTEND=127.0.0.1:7357 TESTSCRIBE_BATCH_ID=before-refactoring cargo test
+```
+
 A frontend, a server with a web UI, lives in the
 [`frontend`](https://github.com/fraillt/testscribe/tree/main/frontend) folder of the repository.
 The messages are described in the `protocol` module of this crate.

@@ -12,6 +12,13 @@
 //!
 //! Without the variable, or when nothing answers at that address, the tests run as usual.
 //!
+//! [`BATCH_ENV_NAME`] names the batch the results belong to. A frontend stores a named batch,
+//! can compare two of them, and remembers per batch what to run the next time:
+//!
+//! ```text
+//! TESTSCRIBE_FRONTEND=127.0.0.1:7357 TESTSCRIBE_BATCH_ID=before-refactoring cargo test
+//! ```
+//!
 //! # Stability
 //!
 //! ⚠️ This crate is experimental and unstable; its API and its [`protocol`] may change in any
@@ -34,6 +41,10 @@ use crate::protocol::ToFrontend;
 
 /// Names the frontend to connect to: `host:port`, or a whole `ws://` url.
 pub const FRONTEND_ENV_NAME: &str = "TESTSCRIBE_FRONTEND";
+
+/// Names the batch the results of this run belong to: any text. Without it, the frontend
+/// keeps the results in its batch `default`, which it does not store.
+pub const BATCH_ENV_NAME: &str = "TESTSCRIBE_BATCH_ID";
 
 /// Used by the `#[testscribe]` macro to run a sync `standalone` test.
 pub fn run_sync(

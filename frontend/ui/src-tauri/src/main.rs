@@ -6,15 +6,15 @@
 // No console window next to the app on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use testscribe_frontend_server::{DEFAULT_PORT, Frontend};
 
 /// Overrides where the app listens for tests: `address:port`.
 const LISTEN_ENV_NAME: &str = "TESTSCRIBE_FRONTEND_LISTEN";
 
 fn main() {
-    let listen = std::env::var(LISTEN_ENV_NAME)
-        .unwrap_or_else(|_| format!("127.0.0.1:{DEFAULT_PORT}"));
+    let listen =
+        std::env::var(LISTEN_ENV_NAME).unwrap_or_else(|_| format!("127.0.0.1:{DEFAULT_PORT}"));
 
     tauri::Builder::default()
         .setup(move |app| {
@@ -22,10 +22,14 @@ fn main() {
             // already, and the window shows what that one knows.
             if let Ok(listener) = std::net::TcpListener::bind(&listen) {
                 listener.set_nonblocking(true)?;
+                // The named batches are stored with the other data of the app.
+                let data_dir = app.path().app_data_dir()?;
+                std::fs::create_dir_all(&data_dir)?;
+                let frontend = Frontend::with_database(&data_dir.join("batches.sqlite"))?;
                 tauri::async_runtime::spawn(async move {
                     let listener = tokio::net::TcpListener::from_std(listener)
                         .expect("a listener the runtime can use");
-                    if let Err(err) = Frontend::new().serve(listener, None).await {
+                    if let Err(err) = frontend.serve(listener, None).await {
                         eprintln!("the frontend server stopped: {err}");
                     }
                 });

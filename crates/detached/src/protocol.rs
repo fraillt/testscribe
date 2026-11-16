@@ -24,6 +24,9 @@ pub enum ToFrontend<'a> {
         protocol: u32,
         /// The file name of the test binary, e.g. `checkout_flow-31acdf8590b2be92`.
         binary: String,
+        /// The batch the results belong to, as named with `TESTSCRIBE_BATCH_ID`. Without a
+        /// name, the frontend keeps them in a batch of its own that it does not store.
+        batch: Option<String>,
         /// The package the tests belong to, when run by cargo. The `filename` of a test or a
         /// check is relative to the workspace this package is in.
         manifest_dir: Option<String>,

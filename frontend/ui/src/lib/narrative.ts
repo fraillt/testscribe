@@ -60,6 +60,7 @@ export function fullName(name: FqName): string {
 /** `Another6IsAdded` reads `another 6 is added`, as in the terminal. */
 export function title(name: string): string {
   return name
+    .replace(/^.*::/, '')
     .replace(/([A-Z])/g, ' $1')
     .replace(/([^0-9 ])([0-9])/g, '$1 $2')
     .trim()
