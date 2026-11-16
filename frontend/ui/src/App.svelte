@@ -27,6 +27,19 @@
     else frontend.watchNothing()
   }
 
+  /** The test binaries of one `cargo test` belong together. */
+  function invocation(session: Session): string {
+    return `${session.batch} ${session.hello.invocation ?? session.id}`
+  }
+
+  /** A batch that has not run yet: it is run from its page, once it knows where. */
+  function newBatch(): void {
+    const name = prompt('The name of the new batch:')?.trim()
+    if (!name) return
+    if (!frontend.batches.some((batch) => batch.name === name)) frontend.setCommand(name, '', '')
+    show({ kind: 'batch', name })
+  }
+
   function summary(session: Session) {
     const failed = session.trees.filter((tree) => tree.status === 'failed').length
     const passed = session.trees.filter((tree) => tree.status === 'passed').length
@@ -50,6 +63,15 @@
     />
     show times
   </label>
+  <details class="option">
+    <summary>open sources with</summary>
+    <input
+      value={frontend.editor}
+      spellcheck="false"
+      title="the link that opens a file in your editor; {'{path}'} and {'{line}'} are filled in"
+      onchange={(event) => frontend.setEditor(event.currentTarget.value)}
+    />
+  </details>
 
   {#if frontend.batches.length}
     <h4>batches</h4>
@@ -60,11 +82,17 @@
             (view.kind === 'diff' && (view.from === item.name || view.to === item.name))}
           onclick={() => show({ kind: 'batch', name: item.name })}
         >
-          <span class="dot" class:failed={item.failed > 0} class:unknown={item.passed + item.failed === 0}></span>
+          <span
+            class="dot"
+            class:failed={item.failed > 0}
+            class:unknown={item.passed + item.failed === 0}
+            class:running={item.running}
+          ></span>
           <span class="name">{item.name}</span>
           <span class="counts">
             {#if item.failed}{item.failed} failed ·{/if}
-            {item.passed}/{item.passed + item.failed + item.skipped}
+            {item.passed}/{item.passed + item.failed + item.skipped + item.not_run}
+            {#if item.running}· running{/if}
             {#if !item.stored}· not stored{/if}
             {#if item.mode === 'selected'}· runs selected{/if}
             {#if item.mode === 'new_and_failed'}· runs new and failed{/if}
@@ -74,12 +102,18 @@
     </nav>
   {/if}
 
+  {#if frontend.canRun}
+    <button class="clear new" onclick={newBatch}>new batch…</button>
+  {/if}
+
   {#if frontend.sessions.length}
     <h4>runs</h4>
   {/if}
   <nav class="runs">
-    {#each frontend.sessions.toReversed() as item (item.id)}
+    {#each frontend.sessions.toReversed() as item, nr (item.id)}
       {@const counts = summary(item)}
+      {@const before = frontend.sessions.toReversed()[nr - 1]}
+      {#if nr > 0 && invocation(before) !== invocation(item)}<hr />{/if}
       <button class:picked={item.id === session?.id} onclick={() => show({ kind: 'session', id: item.id })}>
         <span class="dot" class:failed={counts.failed > 0} class:running={item.open}></span>
         <span class="name">{item.name}</span>
@@ -125,7 +159,7 @@
       </p>
     </header>
     {#each session.trees as tree (tree.root)}
-      <TreeView {tree} />
+      <TreeView {tree} workspaceDir={session.workspaceDir} />
     {/each}
   {:else}
     <div class="empty">
@@ -172,6 +206,27 @@
   }
   .option input {
     margin: 0;
+  }
+  details.option {
+    display: block;
+  }
+  details.option input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 0.3rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.2rem 0.35rem;
+  }
+  nav hr {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 0.25rem 0;
   }
   .connection.off {
     color: var(--bad);
@@ -242,6 +297,9 @@
     font: inherit;
     color: var(--accent);
     cursor: pointer;
+  }
+  .clear.new {
+    margin: 0.35rem 0 0.25rem;
   }
   .clear {
     border: 1px solid var(--border);

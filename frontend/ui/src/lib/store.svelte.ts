@@ -16,6 +16,7 @@ import type {
 export interface Session {
   id: number
   batch: string
+  workspaceDir: string | null
   hello: Hello
   /** The name of the test binary without the hash cargo adds. */
   name: string
@@ -40,6 +41,7 @@ function newSession(data: SessionData): Session {
   const session: Session = {
     id: data.id,
     batch: data.batch,
+    workspaceDir: data.workspace_dir,
     hello: data.hello,
     name: data.hello.binary.replace(/-[0-9a-f]{16}$/, ''),
     open: data.open,
@@ -54,13 +56,26 @@ function applyEvent(session: Session, event: TestsEvent): void {
   if (tree) apply(tree, event)
 }
 
-function remembered(key: string): boolean {
+function remembered(key: string): string | null {
   try {
-    return localStorage.getItem(key) === 'true'
+    return localStorage.getItem(key)
   } catch {
-    return false
+    return null
   }
 }
+
+function remember(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Not remembered, then.
+  }
+}
+
+/** Opens a file at a line in VS Code. `{path}` and `{line}` are filled in. */
+export const DEFAULT_EDITOR = 'vscode://file/{path}:{line}'
+
+const OUTPUT_KEPT = 2000
 
 class Frontend {
   sessions = $state<Session[]>([])
@@ -73,7 +88,11 @@ class Frontend {
   #watched: { kind: 'get_batch'; name: string } | { kind: 'diff'; from: string; to: string } | null = null
   connected = $state(false)
   /** Whether the tests are shown with their executions and times. Kept by the browser. */
-  showTimes = $state(remembered('testscribe.showTimes'))
+  showTimes = $state(remembered('testscribe.showTimes') === 'true')
+  /** The link that opens a place in the sources in an editor. Kept by the browser. */
+  editor = $state(remembered('testscribe.editor') ?? DEFAULT_EDITOR)
+  /** Whether the server may run the tests of a batch itself. */
+  canRun = $state(false)
   address = serverAddress()
   #socket: WebSocket | null = null
 
@@ -94,11 +113,39 @@ class Frontend {
 
   setShowTimes(show: boolean): void {
     this.showTimes = show
-    try {
-      localStorage.setItem('testscribe.showTimes', String(show))
-    } catch {
-      // Not remembered, then.
-    }
+    remember('testscribe.showTimes', String(show))
+  }
+
+  setEditor(editor: string): void {
+    this.editor = editor.trim() || DEFAULT_EDITOR
+    remember('testscribe.editor', this.editor)
+  }
+
+  /** The link to a place in the sources, where it is known which directory they are in. */
+  sourceLink(dir: string | null | undefined, file: string, line: number): string | null {
+    if (!dir || !file) return null
+    const path = file.startsWith('/') ? file : `${dir.replace(/\/$/, '')}/${file}`
+    // `vscode://file/{path}` with a path from the root has one slash between the two.
+    const editor = path.startsWith('/') ? this.editor.replace('/{path}', '{path}') : this.editor
+    return editor.replace('{path}', encodeURI(path)).replace('{line}', String(line))
+  }
+
+  /** Has the server run the tests of the batch, with the command of the batch. */
+  runBatch(batch: string): void {
+    this.#send({ kind: 'run_batch', batch })
+  }
+
+  stopBatch(batch: string): void {
+    this.#send({ kind: 'stop_batch', batch })
+  }
+
+  setCommand(batch: string, command: string, dir: string): void {
+    this.#send({ kind: 'set_command', batch, command, dir })
+  }
+
+  /** Forgets what the batch knows of a test binary. */
+  deleteBinary(batch: string, binary: string): void {
+    this.#send({ kind: 'delete_binary', batch, binary })
   }
 
   /** Forgets the sessions whose test binary has exited. */
@@ -148,6 +195,21 @@ class Frontend {
       case 'snapshot':
         this.sessions = message.sessions.map(newSession)
         this.batches = message.batches
+        this.canRun = message.can_run
+        break
+      case 'command_output':
+        if (this.batch?.name === message.batch) {
+          const output = this.batch.run.output
+          output.push(...message.lines)
+          if (output.length > OUTPUT_KEPT) output.splice(0, output.length - OUTPUT_KEPT)
+        }
+        break
+      case 'command_state':
+        if (this.batch?.name === message.batch) {
+          if (message.running) this.batch.run.output = []
+          this.batch.run.running = message.running
+          this.batch.run.code = message.code
+        }
         break
       case 'batches':
         this.batches = message.batches
@@ -164,7 +226,7 @@ class Frontend {
           this.#watched.from === message.from &&
           this.#watched.to === message.to
         ) {
-          this.diff = { from: message.from, to: message.to, changes: message.changes }
+          this.diff = { from: message.from, to: message.to, changes: message.changes, times: message.times }
         }
         break
       case 'session_opened':

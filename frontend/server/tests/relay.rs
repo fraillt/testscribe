@@ -56,7 +56,7 @@ async fn ui_sees_a_run_as_it_happens_and_one_that_is_over() {
     let mut early_ui = connect(&address, "ui").await;
     assert_eq!(
         next_json(&mut early_ui).await,
-        json!({ "kind": "snapshot", "sessions": [], "batches": [] })
+        json!({ "kind": "snapshot", "sessions": [], "batches": [], "can_run": false })
     );
 
     let mut tests = connect(&address, "tests").await;
@@ -93,7 +93,10 @@ async fn ui_sees_a_run_as_it_happens_and_one_that_is_over() {
     let snapshot = next_json(&mut late_ui).await;
     assert_eq!(
         snapshot["sessions"],
-        json!([{ "id": session, "batch": "default", "hello": hello, "events": [ready], "open": false }])
+        json!([{
+            "id": session, "batch": "default", "workspace_dir": null,
+            "hello": hello, "events": [ready], "open": false,
+        }])
     );
     assert_eq!(snapshot["batches"][0]["name"], "default");
     assert_eq!(snapshot["batches"][0]["stored"], false);
@@ -143,8 +146,12 @@ fn test_ran(test: &str, above: &[&str], line_nr: u32, failure: Option<&str>) -> 
 /// Runs the tree as a test binary would: asks what to run, reports `ran`, and leaves.
 /// Returns what it was told to run.
 async fn run_tree(address: &str, batch: &str, ran: Vec<Vec<Value>>) -> Value {
+    run_tree_saying(address, hello(batch), ran).await
+}
+
+async fn run_tree_saying(address: &str, hello: Value, ran: Vec<Vec<Value>>) -> Value {
     let mut tests = connect(address, "tests").await;
-    tell(&mut tests, hello(batch)).await;
+    tell(&mut tests, hello).await;
     tell(
         &mut tests,
         json!({ "kind": "tree_ready", "root": "orders::OrderPlaced" }),
@@ -354,4 +361,204 @@ async fn batches_are_compared_by_what_their_tests_say() {
     let batches = next_of_kind(&mut ui, "batches").await;
     assert_eq!(batches["batches"].as_array().unwrap().len(), 1);
     assert_eq!(batches["batches"][0]["name"], "after");
+}
+
+#[tokio::test]
+async fn run_says_what_to_run_before_its_batch_does() {
+    let address = start_frontend().await;
+    let mut ui = connect(&address, "ui").await;
+    let everything = vec![
+        test_ran("OrderPlaced", &[], 10, None),
+        test_ran("OrderPaid", PLACED, 20, Some("expected: 5")),
+        test_ran("OrderCancelled", PLACED, 30, None),
+    ];
+    run_tree(&address, "work", everything).await;
+    settled(&mut ui, 1).await;
+
+    // The batch is set to everything, and the run asks for the new and the failed tests.
+    let mut saying = hello("work");
+    saying["run"] = json!("new-and-failed");
+    assert_eq!(
+        run_tree_saying(&address, saying, vec![]).await,
+        json!({ "kind": "paths", "paths": [["orders::OrderPlaced", "orders::OrderPaid"]] })
+    );
+    // The other way round.
+    tell(
+        &mut ui,
+        json!({ "kind": "set_run", "batch": "work", "mode": "new_and_failed" }),
+    )
+    .await;
+    next_of_kind(&mut ui, "batches").await;
+    let mut saying = hello("work");
+    saying["run"] = json!("all");
+    assert_eq!(
+        run_tree_saying(&address, saying, vec![]).await,
+        json!({ "kind": "all" })
+    );
+}
+
+#[tokio::test]
+async fn batch_knows_what_a_test_said_while_its_tree_still_runs() {
+    let address = start_frontend().await;
+    let mut ui = connect(&address, "ui").await;
+    let mut tests = connect(&address, "tests").await;
+    tell(&mut tests, hello("work")).await;
+    tell(
+        &mut tests,
+        json!({ "kind": "tree_ready", "root": "orders::OrderPlaced" }),
+    )
+    .await;
+    next_json(&mut tests).await;
+    for message in test_ran("OrderPlaced", &[], 10, None) {
+        tell(&mut tests, message).await;
+    }
+    // Asking what to run again is answered after everything before it was taken in.
+    tell(
+        &mut tests,
+        json!({ "kind": "tree_ready", "root": "orders::Other" }),
+    )
+    .await;
+    next_json(&mut tests).await;
+
+    let known: Vec<(String, String)> = batch(&mut ui, "work")
+        .await
+        .into_iter()
+        .map(|(name, status, _)| (name, status))
+        .collect();
+    assert_eq!(
+        known,
+        vec![
+            ("orders::OrderPlaced".to_string(), "passed".to_string()),
+            ("orders::OrderPaid".to_string(), "not_run".to_string()),
+            ("orders::OrderCancelled".to_string(), "not_run".to_string()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_that_failed_when_executed_again_is_run_with_the_tests_below_it() {
+    let address = start_frontend().await;
+    let mut ui = connect(&address, "ui").await;
+    // `OrderPlaced` passes, and panics when it is executed again for the second test below.
+    let again = |update: Value| json!({ "kind": "test", "root": "orders::OrderPlaced", "test": name("OrderPlaced"), "update": update, "elapsed_us": 9 });
+    let ran = vec![
+        test_ran("OrderPlaced", &[], 10, None),
+        test_ran("OrderPaid", PLACED, 20, None),
+        vec![
+            again(
+                json!({ "kind": "Started", "info": { "path": [], "run_count": 1, "param_info": null } }),
+            ),
+            again(json!({ "kind": "Finished", "panic_message": "no connection" })),
+        ],
+    ];
+    run_tree(&address, "work", ran).await;
+    settled(&mut ui, 1).await;
+
+    let mut saying = hello("work");
+    saying["run"] = json!("new-and-failed");
+    // `OrderPaid` passed, and runs again all the same: alone, `OrderPlaced` would pass.
+    assert_eq!(
+        run_tree_saying(&address, saying, vec![]).await,
+        json!({ "kind": "paths", "paths": [
+            ["orders::OrderPlaced"],
+            ["orders::OrderPlaced", "orders::OrderPaid"],
+            ["orders::OrderPlaced", "orders::OrderCancelled"],
+        ] })
+    );
+}
+
+#[tokio::test]
+async fn ui_runs_the_command_of_a_batch_where_that_is_allowed() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    tokio::spawn(
+        Frontend::new()
+            .allow_commands(address.clone())
+            .serve(listener, None),
+    );
+    let mut ui = connect(&address, "ui").await;
+    assert_eq!(next_json(&mut ui).await["can_run"], true);
+
+    let dir = std::env::temp_dir();
+    let command = "echo to $TESTSCRIBE_FRONTEND as $TESTSCRIBE_BATCH_ID; exit 3";
+    tell(
+        &mut ui,
+        json!({ "kind": "set_command", "batch": "work", "command": command, "dir": dir }),
+    )
+    .await;
+    tell(&mut ui, json!({ "kind": "run_batch", "batch": "work" })).await;
+
+    let started = next_of_kind(&mut ui, "command_state").await;
+    assert_eq!(started["running"], true);
+    let finished = next_of_kind(&mut ui, "command_state").await;
+    assert_eq!(
+        finished,
+        json!({ "kind": "command_state", "batch": "work", "running": false, "code": 3 })
+    );
+
+    tell(&mut ui, json!({ "kind": "get_batch", "name": "work" })).await;
+    let batch = next_of_kind(&mut ui, "batch").await;
+    let output = batch["batch"]["run"]["output"].as_array().unwrap();
+    assert_eq!(output[1], json!(format!("to {address} as work")));
+    assert_eq!(output[2], "finished with exit code 3");
+}
+
+#[tokio::test]
+async fn nothing_is_run_where_it_is_not_allowed_and_no_other_page_is_let_in() {
+    let address = start_frontend().await;
+    let mut ui = connect(&address, "ui").await;
+    assert_eq!(next_json(&mut ui).await["can_run"], false);
+    tell(
+        &mut ui,
+        json!({ "kind": "set_command", "batch": "work", "command": "echo hello", "dir": "/" }),
+    )
+    .await;
+    tell(&mut ui, json!({ "kind": "run_batch", "batch": "work" })).await;
+    tell(&mut ui, json!({ "kind": "get_batch", "name": "work" })).await;
+    let batch = next_of_kind(&mut ui, "batch").await;
+    assert_eq!(batch["batch"]["run"]["output"], json!([]));
+
+    // A page of some other site that opens a WebSocket to the frontend.
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let mut request = format!("ws://{address}/ui").into_client_request().unwrap();
+    request
+        .headers_mut()
+        .insert("origin", "https://example.com".parse().unwrap());
+    assert!(connect_async(request).await.is_err());
+}
+
+#[tokio::test]
+async fn command_that_runs_is_stopped_with_everything_it_started() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    tokio::spawn(
+        Frontend::new()
+            .allow_commands(address.clone())
+            .serve(listener, None),
+    );
+    let mut ui = connect(&address, "ui").await;
+    // The shell starts another process and waits for it, as `cargo test` does.
+    let command = "echo started; sleep 60; echo not reached";
+    tell(
+        &mut ui,
+        json!({ "kind": "set_command", "batch": "work", "command": command, "dir": std::env::temp_dir() }),
+    )
+    .await;
+    tell(&mut ui, json!({ "kind": "run_batch", "batch": "work" })).await;
+    loop {
+        let printed = next_of_kind(&mut ui, "command_output").await;
+        if printed["lines"][0] == "started" {
+            break;
+        }
+    }
+    let asked = std::time::Instant::now();
+    tell(&mut ui, json!({ "kind": "stop_batch", "batch": "work" })).await;
+    loop {
+        let state = next_of_kind(&mut ui, "command_state").await;
+        if state["running"] == false {
+            assert_eq!(state["code"], Value::Null);
+            break;
+        }
+    }
+    assert!(asked.elapsed() < std::time::Duration::from_secs(10));
 }

@@ -24,6 +24,12 @@
     inset?: number
   } = $props()
 
+  /** What a test that is executed again and again would save, if it ran once. */
+  let saved = $derived.by(() => {
+    const test = rows[0]
+    if (!test || test.runs < 2) return null
+    return Math.round(((test.test_us + test.setup_us) * (test.runs - 1)) / test.runs)
+  })
   let total = $derived({
     runs: rows.reduce((sum, row) => sum + row.runs, 0),
     test_us: rows.reduce((sum, row) => sum + row.test_us, 0),
@@ -64,6 +70,12 @@
     before a test starts: its environment is created, and what it starts from is copied.
     {#if wholeTree}Test and setup time together are the time of the whole tree.{/if}
   </p>
+  {#if saved !== null}
+    <p>
+      <b>{rows[0].name}</b> was executed {rows[0].runs}×. If its state and environment could be copied
+      (<code>Clone</code>), it would run once, and save about {duration(saved)}.
+    </p>
+  {/if}
 </div>
 
 <style>
@@ -101,5 +113,11 @@
     margin: 0.5rem 0 0;
     color: var(--muted);
     max-width: 44rem;
+  }
+  p b {
+    font-weight: 600;
+  }
+  code {
+    font-family: var(--mono);
   }
 </style>

@@ -18,3 +18,21 @@ DONE!
   - run selected test(s) - in the UI you can select which tests you want to run, and only these tests will be ran
   - run new-and-failed - useful in development, only runs new or failed tests for same batch
   - a rerun only overwrites the tests that actually ran
+
+# Milestone 3
+
+DONE!
+
+Things that came up while using milestone 2.
+* executions and times of a test and its branches, with the setup time derived from the test timings; hidden unless "show times" is ticked
+* run the tests of a batch from the UI
+* a batch knows the tests that have not run, so that a test that did not run is not told as deleted
+* `TESTSCRIBE_RUN` says what a run executes, from the terminal
+* a batch as a file (`export`, `import`), and `diff` against it as a gate in CI
+* compare the times of two batches
+* the git commit and branch a batch last ran on
+* filters and search on the page of a batch, links to the sources, slowest first
+* the page of a batch follows the tests while they run
+* the frontend is built and tested in CI
+
+See [design.md](design.md) for the decisions, and for what is known not to work.

@@ -15,7 +15,10 @@ runs them, and it shows every tree as the narrative the terminal prints, live.
 - `ui/` — the UI, Svelte and TypeScript. It talks to the server over a WebSocket and nothing
   else, so it is the same UI in a browser and, later, in a desktop window.
 
-A desktop shell (Tauri) around the two is planned and not there yet.
+`ui/src-tauri` is a desktop shell (Tauri) around the two: `npm run tauri dev` in `ui/`. It needs
+the libraries of a webview (`libwebkit2gtk-4.1-dev` on Debian and Ubuntu).
+
+[design.md](design.md) says why things are the way they are, and what is known not to work.
 
 ## Running it
 
@@ -49,16 +52,56 @@ TESTSCRIBE_FRONTEND=127.0.0.1:7357 TESTSCRIBE_BATCH_ID=before-refactoring cargo 
 A run that names none belongs to the batch `default`. That one is kept in memory only: it is
 never stored, and gone when the server stops. Everything else works the same for it.
 
-Without `--no-fail-fast`, cargo stops at the first test binary that fails, and the batch does not
-hear of the binaries after it.
+A batch knows every test its test binaries announce, also the ones that have not run: those are
+"not run". The page of a batch shows what its tests say while they run, which sources they last
+ran on (the git branch and commit, and whether there were changes that are not committed), and
+it can be narrowed down to the tests that did not pass, the ones that have not run, or the ones
+a search finds. A test links to its place in the sources; "open sources with" in the sidebar
+says which editor that opens (VS Code, unless told otherwise).
+
+Without `--no-fail-fast`, cargo stops at the first test binary that fails. The binaries after it
+do not report, and their tests stay as they were, or "not run" in a new batch.
+
+### Running a batch again
+
+A batch remembers what to run the next time its tests ask. It is set on the page of the batch,
+and it holds until it is set to something else:
+
+- **everything** — the default. Every tree that runs starts over: what the batch knew of its
+  tests is forgotten.
+- **selected tests** — only the tests picked in the UI run, and the tests above them, which
+  they start from.
+- **new and failed** — only the tests that have not run yet, and the ones that did not pass.
+  Made for development: run, fix, run again, until nothing is left to run.
+
+Whatever ran, the batch only writes over the tests that actually ran. The other tests stay as
+they were. A test that is no longer in the code is forgotten when its test binary reports again;
+a test binary that is no longer there never does, and is forgotten with "forget" on the page.
+
+`TESTSCRIBE_RUN=all` or `TESTSCRIBE_RUN=new-and-failed` on a run comes before what the batch is
+set to, for that run. A selection made on the command line, with `--exact` or `TESTSCRIBE_ONLY`,
+comes before both: the frontend is then not asked, and the batch keeps what ran.
+
+### Running the tests from the UI
+
+**run** on the page of a batch has the server run the tests: it executes the command of the
+batch, `cargo test --no-fail-fast` unless "command…" says otherwise, in the directory of the
+batch, with `TESTSCRIBE_FRONTEND` and `TESTSCRIBE_BATCH_ID` set. What the command prints is shown
+on the page, and **stop** ends it. The directory is the workspace of the first test binary that
+reported; a batch made with "new batch…" has to be told.
+
+Whoever reaches the UI can run any command on the machine of the server this way. So it is
+only there when the server listens on this machine alone, as it does unless told otherwise.
+`--allow-run` allows it wherever the server listens, and `--no-run` forbids it.
 
 ### Executions and times
 
 The times are hidden until "show times" is ticked in the sidebar; the browser remembers that.
 Then every test shows how long it took, on the page of a batch and in a run as it happens, and
-how often it was executed when that was more than once. Click the time for the test with its branches, the tests below it: for
-each of them how often it was executed, the time in the test itself, and its setup time, and
-all of that summed up.
+how often it was executed when that was more than once. Click the time for the test with its
+branches, the tests below it: for each of them how often it was executed, the time in the test
+itself, and its setup time, and all of that summed up. "slowest first" lists the tests of a
+batch by the time they took.
 
 A test is executed again for every branch below it that starts from what it built, unless what
 it built can be copied. Setup is the time before a test starts, since the test before it ended:
@@ -77,25 +120,32 @@ cargo run -- diff before-refactoring after-refactoring
 
 Both show the tests that were added, deleted and modified, the modified ones line by line. A
 test is known by its test binary and its place in the tree, and it is modified when its outcome
-reads differently. Moving code around changes no outcome. `diff` exits with a failure when
-anything is different.
+reads differently. Moving code around changes no outcome.
 
-### Running a batch again
+A test that ran in the older batch and has not run in the newer one is told as "not run", not
+as deleted: it may well be there. That is a test the newer batch knows and did not run, and
+every test of a test binary that did not report to the newer batch at all.
 
-A batch remembers what to run the next time its tests ask. It is set in the UI, on the page of
-the batch, and it holds until it is set to something else:
+In the UI, "times" compares how long the tests took that say the same in both batches.
 
-- **everything** — the default. Every tree that runs replaces what the batch knew of it.
-- **selected tests** — only the tests picked in the UI run, and the tests above them, which
-  they start from.
-- **new and failed** — only the tests the batch does not know yet, and the ones that did not
-  pass. Made for development: run, fix, run again, until nothing is left to run.
+### A batch as a file, and in CI
 
-Whatever ran, the batch only writes over the tests that actually ran. The other tests stay as
-they were. A test that is no longer in the code is forgotten when its test binary reports again.
+```text
+cargo run -- export before-refactoring behaviour.json
+cargo run -- import behaviour.json before-refactoring
+```
 
-A selection made on the command line, with `--exact` or `TESTSCRIBE_ONLY`, comes first: the
-frontend is then not asked, and the batch keeps what ran.
+The file has what the tests said and nothing else: no times, no places in the sources. So it
+is the same file as long as the tests say the same, and it can be kept next to the code.
+`diff` takes such a file wherever it takes a batch, and exits with a failure when anything is
+different, a test that did not run included. In CI, that makes a change in what the tests say
+something a pull request has to show:
+
+```text
+testscribe-frontend --db ci.sqlite &
+TESTSCRIBE_FRONTEND=127.0.0.1:7357 TESTSCRIBE_BATCH_ID=ci cargo test --no-fail-fast
+testscribe-frontend --db ci.sqlite diff behaviour.json ci
+```
 
 ## Working on the UI
 
@@ -104,29 +154,42 @@ frontend is then not asked, and the batch keeps what ran.
 
 ## What the server tells the UI
 
-The UI connects to `/ui` and is first sent everything known:
-`{"kind": "snapshot", "sessions": [{"id", "batch", "hello", "events", "open"}], "batches": [...]}`.
-A session is one test binary; `hello` and `events` are its messages as it sent them (see the
-`protocol` module of the `testscribe-detached` crate). A batch is listed with its `name`, whether
-it is `stored`, its `mode` (`all`, `selected` or `new_and_failed`), and how many of its tests
-`passed`, `failed` and were `skipped`. After that, as it happens:
+The UI connects to `/ui`. Only a page of the frontend itself is let in: one served by the
+server, one from this machine, or the window of the desktop app.
+
+It is first sent everything known:
+`{"kind": "snapshot", "sessions": [...], "batches": [...], "can_run"}`. A session is one test
+binary, with its `id`, its `batch`, the `workspace_dir` of its tests if they are on the machine
+of the server, whether it is still `open`, and its `hello` and `events`: its messages as it sent
+them (see the `protocol` module of the `testscribe-detached` crate). A batch is listed with its
+`name`, whether it is `stored`, its `mode` (`all`, `selected` or `new_and_failed`), how many of
+its tests `passed`, `failed`, were `skipped` and have `not_run`, the `commit` and `branch` it
+last ran on and whether the sources were `dirty`, and whether the server is `running` its
+tests. `can_run` says whether the server may run tests at all. After that, as it happens:
 
 - `{"kind": "session_opened", "session": {...}}`
 - `{"kind": "event", "session": <id>, "event": {...}}`
 - `{"kind": "session_closed", "session": <id>}`, when the test binary has exited
-- `{"kind": "batches", "batches": [...]}`, when anything about a batch has changed
+- `{"kind": "batches", "batches": [...]}`, when anything about a batch has changed; while tests
+  report, a few times a second at most
+- `{"kind": "command_state", "batch", "running", "code"}` and
+  `{"kind": "command_output", "batch", "lines"}`, for the tests the server runs itself
 
 The UI may send:
 
 - `{"kind": "clear"}` to forget the sessions that are over
 - `{"kind": "get_batch", "name"}`, answered with `{"kind": "batch", "name", "batch"}`: the batch
-  with its `mode`, its `selected` tests and all its `tests`, each with `binary`, `path` (the names
-  from the root down), `status`, `text`, and how it ran: `runs`, `test_us` and `setup_us`; `null`
-  if there is no such batch
+  with its `mode`, its `selected` tests, its `command` and `dir`, the `run` of that command
+  (`running`, `code` and the last lines of its `output`), and all its `tests`, each with
+  `binary`, `path` (the names from the root down), `status`, `text`, where it is (`file` and
+  `line`), and how it ran: `runs`, `test_us` and `setup_us`; `null` if there is no such batch
 - `{"kind": "set_run", "batch", "mode", "selected": [{"binary", "path"}]}` to set what the batch
   runs the next time; without `selected`, the tests picked earlier stay picked
-- `{"kind": "diff", "from", "to"}`, answered with `{"kind": "diff", "from", "to", "changes"}`:
-  for every test that differs its `binary`, `path`, `kind` (`added`, `deleted` or `modified`),
-  its status `from` and `to`, and its `lines`, each with the `side` that has it (`+`, `-`, or a
-  space for both)
-- `{"kind": "delete_batch", "name"}`
+- `{"kind": "set_command", "batch", "command", "dir"}`, which also makes a batch that is not there
+- `{"kind": "run_batch", "batch"}` and `{"kind": "stop_batch", "batch"}`
+- `{"kind": "diff", "from", "to"}`, answered with `{"kind": "diff", "from", "to", "changes", "times"}`:
+  for every test that differs its `binary`, `path`, `kind` (`added`, `deleted`, `modified` or
+  `not_run`), its status `from` and `to`, and its `lines`, each with the `side` that has it
+  (`+`, `-`, or a space for both); and for every test that says the same on both sides, how it
+  ran `from` and `to`
+- `{"kind": "delete_batch", "name"}` and `{"kind": "delete_binary", "batch", "binary"}`

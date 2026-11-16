@@ -46,6 +46,10 @@ pub const FRONTEND_ENV_NAME: &str = "TESTSCRIBE_FRONTEND";
 /// keeps the results in its batch `default`, which it does not store.
 pub const BATCH_ENV_NAME: &str = "TESTSCRIBE_BATCH_ID";
 
+/// Says what a frontend lets this run execute, whatever is set there for the batch: `all`, or
+/// `new-and-failed` for the tests the batch does not know yet and the ones that did not pass.
+pub const RUN_ENV_NAME: &str = "TESTSCRIBE_RUN";
+
 /// Used by the `#[testscribe]` macro to run a sync `standalone` test.
 pub fn run_sync(
     test_cases: &'static [TestCase],

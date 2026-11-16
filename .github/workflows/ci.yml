@@ -53,3 +53,54 @@ jobs:
         run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
+
+  # The frontend is a workspace of its own, with a UI next to it.
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/ui/package-lock.json
+
+      - name: UI dependencies
+        run: npm ci
+        working-directory: frontend/ui
+
+      - name: UI types (svelte-check)
+        run: npm run check
+        working-directory: frontend/ui
+
+      - name: UI build
+        run: npm run build
+        working-directory: frontend/ui
+
+      - name: Rust formatting (cargo fmt)
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      # The desktop shell needs the libraries of a webview, and the built UI.
+      - name: Desktop shell
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
+          cargo clippy -p testscribe-frontend-desktop -- -D warnings

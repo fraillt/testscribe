@@ -32,6 +32,9 @@ This changelog covers all crates in the workspace
   compares two of them by what their tests say (added, deleted and modified tests), and remembers
   per batch what to run the next time: everything, the tests selected in the UI, or the new and
   the failed ones.
+- `detached`: `TESTSCRIBE_RUN=all` or `TESTSCRIBE_RUN=new-and-failed` says what a run executes,
+  whatever the frontend has set for its batch. The test binary also tells the frontend which
+  process started it, so that the binaries of one `cargo test` can be told apart from the next.
 
 ### Fixed
 

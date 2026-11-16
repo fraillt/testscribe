@@ -15,7 +15,7 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::protocol::{FromFrontend, PROTOCOL_VERSION, Select, ToFrontend};
-use crate::{BATCH_ENV_NAME, FRONTEND_ENV_NAME};
+use crate::{BATCH_ENV_NAME, FRONTEND_ENV_NAME, RUN_ENV_NAME};
 
 /// How long a frontend may take to accept the connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -117,6 +117,10 @@ fn hello(test_cases: &'static [TestCase]) -> String {
         batch: std::env::var(BATCH_ENV_NAME)
             .ok()
             .filter(|batch| !batch.is_empty()),
+        run: std::env::var(RUN_ENV_NAME)
+            .ok()
+            .filter(|run| !run.is_empty()),
+        invocation: invocation(),
         manifest_dir: std::env::var("CARGO_MANIFEST_DIR").ok(),
         cwd: std::env::current_dir()
             .ok()
@@ -125,6 +129,16 @@ fn hello(test_cases: &'static [TestCase]) -> String {
         trees: &create_test_trees(test_cases),
     }
     .to_json()
+}
+
+#[cfg(unix)]
+fn invocation() -> Option<u32> {
+    Some(std::os::unix::process::parent_id())
+}
+
+#[cfg(not(unix))]
+fn invocation() -> Option<u32> {
+    None
 }
 
 async fn serve<S>(socket: S, mut to_send: UnboundedReceiver<Outgoing>, hello: String)

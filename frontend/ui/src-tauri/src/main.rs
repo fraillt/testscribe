@@ -25,7 +25,9 @@ fn main() {
                 // The named batches are stored with the other data of the app.
                 let data_dir = app.path().app_data_dir()?;
                 std::fs::create_dir_all(&data_dir)?;
-                let frontend = Frontend::with_database(&data_dir.join("batches.sqlite"))?;
+                // The window is the UI, and it may run the tests of a batch on this machine.
+                let frontend = Frontend::with_database(&data_dir.join("batches.sqlite"))?
+                    .allow_commands(listen.clone());
                 tauri::async_runtime::spawn(async move {
                     let listener = tokio::net::TcpListener::from_std(listener)
                         .expect("a listener the runtime can use");

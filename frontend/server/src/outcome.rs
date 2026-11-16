@@ -4,16 +4,19 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     Passed,
     Failed,
     /// The test could not run, because a test above it panicked.
     Skipped,
+    /// The test is in the code, and nothing is known of it: it has not run yet, or not
+    /// since the whole of its tree ran last.
+    NotRun,
 }
 
 impl Status {
@@ -22,6 +25,7 @@ impl Status {
             Status::Passed => "passed",
             Status::Failed => "failed",
             Status::Skipped => "skipped",
+            Status::NotRun => "not_run",
         }
     }
 
@@ -29,6 +33,7 @@ impl Status {
         match text {
             "passed" => Status::Passed,
             "skipped" => Status::Skipped,
+            "not_run" => Status::NotRun,
             _ => Status::Failed,
         }
     }
@@ -61,6 +66,9 @@ pub struct TestOutcome {
     pub status: Status,
     pub text: String,
     pub timing: Timing,
+    /// The test failed when it was executed again for a test below it, and not before.
+    /// Running it alone would not show that failure.
+    pub failed_again: bool,
 }
 
 /// One execution of a test, while it is going on.
@@ -151,8 +159,8 @@ fn failure(outcome: &Value) -> Option<&str> {
 }
 
 impl TreeOutcome {
-    /// Takes a `test` message of the tree.
-    pub fn apply(&mut self, event: &Value) {
+    /// Takes a `test` message of the tree. Returns the test of which more is known now.
+    pub fn apply(&mut self, event: &Value) -> Option<TestPath> {
         let update = &event["update"];
         let elapsed_us = event["elapsed_us"].as_u64().unwrap_or(self.last_end_us);
         match update["kind"].as_str() {
@@ -184,7 +192,7 @@ impl TreeOutcome {
                 });
             }
             Some("Updated") => {
-                let Some(run) = &mut self.current else { return };
+                let run = self.current.as_mut()?;
                 let info = &update["info"];
                 let keyword = if run.items == 0 { "Then" } else { "And" };
                 let message = info["message"].as_str().unwrap_or_default();
@@ -225,9 +233,8 @@ impl TreeOutcome {
                 }
             }
             Some("Finished") => {
-                let Some(mut run) = self.current.take() else {
-                    return;
-                };
+                let mut run = self.current.take()?;
+                let path = run.path.clone();
                 let timing = self.timings.entry(run.path.clone()).or_default();
                 timing.runs += 1;
                 timing.test_us += elapsed_us.saturating_sub(run.started_us);
@@ -247,23 +254,31 @@ impl TreeOutcome {
                         Status::Passed
                     };
                     self.tell(run.path, status, run.lines.join("\n"));
+                    if run.again
+                        && let Some(&idx) = self.index.get(&path)
+                    {
+                        self.tests[idx].failed_again = true;
+                    }
                 }
+                return Some(path);
             }
             Some("Skipped") => {
                 let info = &update["info"];
                 let reason = &update["reason"];
                 // A test that was not selected did not run: nothing is known of it.
                 if reason["kind"] != "Panicked" || info["run_count"].as_u64().unwrap_or(0) > 0 {
-                    return;
+                    return None;
                 }
                 let path = test_path(&event["test"], info);
                 let message = reason["message"].as_str().unwrap_or_default();
                 let mut lines = vec![heading(&path)];
                 lines.push(format!("– skipped: {}", message.replace('\n', "\n      ")));
-                self.tell(path, Status::Skipped, lines.join("\n"));
+                self.tell(path.clone(), Status::Skipped, lines.join("\n"));
+                return Some(path);
             }
             _ => {}
         }
+        None
     }
 
     /// A test with parameters above it runs once for each: its outcome is all of its runs.
@@ -276,7 +291,7 @@ impl TreeOutcome {
                 test.status = match (test.status, status) {
                     (Status::Failed, _) | (_, Status::Failed) => Status::Failed,
                     (Status::Skipped, _) | (_, Status::Skipped) => Status::Skipped,
-                    _ => Status::Passed,
+                    (status, _) => status,
                 };
             }
             None => {
@@ -286,6 +301,7 @@ impl TreeOutcome {
                     status,
                     text,
                     timing: Timing::default(),
+                    failed_again: false,
                 });
             }
         }
@@ -293,11 +309,15 @@ impl TreeOutcome {
 
     /// The tests that ran so far, in the order they first ran.
     pub fn tests(&self) -> Vec<TestOutcome> {
-        let mut tests = self.tests.clone();
-        for test in &mut tests {
-            test.timing = self.timings.get(&test.path).copied().unwrap_or_default();
-        }
-        tests
+        let paths = self.tests.iter().map(|test| &test.path);
+        paths.filter_map(|path| self.test(path)).collect()
+    }
+
+    /// What is known of the test so far, if it ran.
+    pub fn test(&self, path: &TestPath) -> Option<TestOutcome> {
+        let mut test = self.tests[*self.index.get(path)?].clone();
+        test.timing = self.timings.get(path).copied().unwrap_or_default();
+        Some(test)
     }
 }
 
@@ -347,7 +367,9 @@ mod tests {
 
     fn outcome_of(events: &[Value]) -> Vec<TestOutcome> {
         let mut tree = TreeOutcome::default();
-        events.iter().for_each(|event| tree.apply(event));
+        for event in events {
+            tree.apply(event);
+        }
         tree.tests()
     }
 
@@ -380,12 +402,14 @@ mod tests {
                     status: Status::Passed,
                     text: "Given order placed".into(),
                     timing: Timing { runs: 1, ..Timing::default() },
+                    failed_again: false,
                 },
                 TestOutcome {
                     path: vec!["orders::OrderPlaced".into(), "orders::OrderPaid".into()],
                     status: Status::Failed,
                     text: "When order paid\n  Then order number equals 17\n✗ And total equals 5\n      expected: 5\n      actual: 6".into(),
                     timing: Timing { runs: 1, ..Timing::default() },
+                    failed_again: false,
                 },
             ]
         );
@@ -417,6 +441,7 @@ mod tests {
         ]);
         assert_eq!(tests.len(), 1);
         assert_eq!(tests[0].status, Status::Failed);
+        assert!(tests[0].failed_again);
         assert_eq!(
             tests[0].text,
             "Given order placed\n\nGiven order placed (executed again)\n✗ panicked: no connection"
@@ -448,6 +473,7 @@ mod tests {
                 status: Status::Skipped,
                 text: "When order shipped\n– skipped: no connection".into(),
                 timing: Timing::default(),
+                failed_again: false,
             }]
         );
     }

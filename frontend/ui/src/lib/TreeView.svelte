@@ -4,7 +4,7 @@
   import { frontend } from './store.svelte'
   import TimingPanel, { type TimingRow } from './TimingPanel.svelte'
 
-  let { tree }: { tree: Tree } = $props()
+  let { tree, workspaceDir = null }: { tree: Tree; workspaceDir?: string | null } = $props()
 
   /** The step whose test is shown with its executions and times. */
   let timed = $state<number | null>(null)
@@ -36,6 +36,15 @@
   {#each node.childs as child (child.node.name.name)}
     {@render outline(child, depth + 1)}
   {/each}
+{/snippet}
+
+{#snippet source(file: string, line: number)}
+  {@const link = frontend.sourceLink(workspaceDir, file, line)}
+  {#if link}
+    <small><a href={link} title="open in the editor">{file}:{line}</a></small>
+  {:else}
+    <small>{file}:{line}</small>
+  {/if}
 {/snippet}
 
 <section class="tree {tree.status.replace(' ', '-')}">
@@ -98,7 +107,7 @@
               {item.message}
               {#if !item.ok}
                 <pre>{item.details}</pre>
-                <small>{item.file}:{item.line}</small>
+                {@render source(item.file, item.line)}
               {/if}
             </span>
           </div>
@@ -124,7 +133,7 @@
                   {/each}
                 </tbody>
               </table>
-              {#if failed}<small>{item.file}:{item.line}</small>{/if}
+              {#if failed}{@render source(item.file, item.line)}{/if}
             </span>
           </div>
         {/if}
@@ -277,8 +286,12 @@
     white-space: pre-wrap;
     font: inherit;
   }
-  small {
+  small,
+  small a {
     color: var(--muted);
+  }
+  small a:hover {
+    color: var(--accent);
   }
   table {
     border-collapse: collapse;

@@ -27,6 +27,12 @@ pub enum ToFrontend<'a> {
         /// The batch the results belong to, as named with `TESTSCRIBE_BATCH_ID`. Without a
         /// name, the frontend keeps them in a batch of its own that it does not store.
         batch: Option<String>,
+        /// What to run, when `TESTSCRIBE_RUN` says it: it comes before what the frontend has
+        /// set for the batch.
+        run: Option<String>,
+        /// The process that started this test binary: `cargo test`, as a rule. The test
+        /// binaries of one invocation have it in common.
+        invocation: Option<u32>,
         /// The package the tests belong to, when run by cargo. The `filename` of a test or a
         /// check is relative to the workspace this package is in.
         manifest_dir: Option<String>,

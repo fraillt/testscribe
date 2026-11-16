@@ -29,6 +29,9 @@ batch `default`, which the frontend keeps in memory only.
 TESTSCRIBE_FRONTEND=127.0.0.1:7357 TESTSCRIBE_BATCH_ID=before-refactoring cargo test
 ```
 
+`TESTSCRIBE_RUN=all` or `TESTSCRIBE_RUN=new-and-failed` says what this run executes, whatever is
+set in the frontend for the batch.
+
 A frontend, a server with a web UI, lives in the
 [`frontend`](https://github.com/fraillt/testscribe/tree/main/frontend) folder of the repository.
 The messages are described in the `protocol` module of this crate.
