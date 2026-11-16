@@ -9,7 +9,7 @@ problem carries what was done about it since.
 | 1 | a run reported `ok` although nothing could run | fixed |
 | 2 | output of parallel roots interleaves | fixed |
 | 3 | no check for "is empty" | added |
-| 4 | readable output needs a helper per file | open, a design question |
+| 4 | readable output needs a helper per file | documented as an idiom |
 | 5 | enum variants with payloads | added |
 | 6 | pure functions have no action | was documented already |
 | 7 | small ergonomics | open |
@@ -99,12 +99,21 @@ file grew a `told()` function that turns domain values into short sentences
 reads well, but it is boilerplate. Possible help: a way to give `then!` a formatter, or to assert
 through `Display`.
 
-**Open.** Two ways it could go, for the owner to choose:
+**Documented as an idiom**, with nothing added to the library. The sentence a domain value is
+told as is the project's choice, and comparing through `Display` would not have helped here:
+integration tests are a crate of their own and cannot implement `Display` for the types of the
+crate under test. What the project needs is one `Told` trait (`fn told(&self) -> String`) and one
+`reads` check for every `T: Told`, written once in the module its test files share, instead of a
+helper per file:
 
-- compare through `Display`: `then!(transfers).displayed().eq(vec!["Confirmed 50.000000 in block 101"])`,
-  which turns a `T: Display` or a collection of them into text before comparing;
-- or leave it to the project and document the `told()` pattern as the idiom, since the sentence
-  a domain value is told as is the project's choice anyway.
+```text
+then!(transfers[0] => deposit).reads("Confirmed Incoming 50.000000 in block 101");
+
+ |       -|  Then deposit reads Confirmed Incoming 50.000000 in block 101
+```
+
+A list is checked item by item, so that a check stays one line of output. See "Telling domain
+values" in `docs/advanced_techniques.md` and `tests/custom_checks.rs`.
 
 ### 5. Enum variants with payloads
 

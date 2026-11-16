@@ -175,6 +175,11 @@ Example:
 
 When to use:
 - Domain-specific assertions that are clearer than generic `eq(true)` or `is_err()`.
+- Structs whose `Debug` would fill the output when compared with `eq`: define a `Told` trait
+  (`fn told(&self) -> String`) and one `reads` check for every `T: Told`, once per project, then
+  `then!(transfers[0] => deposit).reads("Confirmed Incoming 50.000000 in block 101");`
+  (see "Telling domain values" in `advanced_techniques.md` and `tests/custom_checks.rs`).
+  Do not write a formatting helper per test file.
 
 Naming:
 - Avoid `is_*` and `to_*` prefixes: custom checks consume `self` by value, which triggers

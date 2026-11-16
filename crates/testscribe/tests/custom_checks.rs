@@ -68,3 +68,97 @@ fn list_is_built_in_order() {
     // on the `VerifyValue` returned by the `then!` macro.
     then!(list).sorted_ascending();
 }
+
+/// A transfer the way a wallet stores it. Compared with `eq`, its whole `Debug` would land in
+/// the test output: `Transfer { status: Confirmed, direction: Incoming, amount_micro: 50000000,
+/// block: 101 }`. Nobody reads that, and it only gets worse with nesting.
+pub struct Transfer {
+    pub status: Status,
+    pub direction: Direction,
+    pub amount_micro: u64,
+    pub block: u64,
+}
+
+#[derive(Debug)]
+pub enum Status {
+    Detected,
+    Confirmed,
+}
+
+#[derive(Debug)]
+pub enum Direction {
+    Incoming,
+    Outgoing,
+}
+
+/// A domain value told as one short sentence, the way the tests of this project word it.
+///
+/// It is a trait of the test code and not `Display`, for two reasons: the sentence a test
+/// wants is rarely the one production code prints, and integration tests are a crate of their
+/// own, where `Display` cannot be implemented for the types of the crate under test. A trait
+/// defined in the tests can be.
+pub trait Told {
+    fn told(&self) -> String;
+}
+
+impl Told for Transfer {
+    fn told(&self) -> String {
+        format!(
+            "{:?} {:?} {}.{:06} in block {}",
+            self.status,
+            self.direction,
+            self.amount_micro / 1_000_000,
+            self.amount_micro % 1_000_000,
+            self.block
+        )
+    }
+}
+
+/// The check that goes with [`Told`]: written once, it works for every type that is told.
+pub trait CheckReads {
+    fn reads(self, expected: &str);
+}
+
+impl<T: Told> CheckReads for VerifyValue<'_, T> {
+    fn reads(self, expected: &str) {
+        let this = VerifyValueExposed::new(self);
+        let told = this.actual_value.told();
+        this.reporter.set_outcome(
+            format!("{} reads {}", this.var_name, expected),
+            if told == expected {
+                VerifyOutcome::Success
+            } else {
+                VerifyOutcome::Failure {
+                    details: format!("actual: {told}"),
+                }
+            },
+        );
+    }
+}
+
+/// Running this test will give this outcome:
+/// ```text
+/// | 8.120μs|Given deposit confirmed and withdrawal detected
+/// |       -|  Then deposit reads Confirmed Incoming 50.000000 in block 101
+/// |       -|  And withdrawal reads Detected Outgoing 12.500000 in block 103
+/// ```
+#[testscribe(standalone)]
+fn deposit_confirmed_and_withdrawal_detected() {
+    let transfers = [
+        Transfer {
+            status: Status::Confirmed,
+            direction: Direction::Incoming,
+            amount_micro: 50_000_000,
+            block: 101,
+        },
+        Transfer {
+            status: Status::Detected,
+            direction: Direction::Outgoing,
+            amount_micro: 12_500_000,
+            block: 103,
+        },
+    ];
+    // Items of a list are checked one by one, each under the name it has in the scenario.
+    then!(transfers[0] => deposit).reads("Confirmed Incoming 50.000000 in block 101");
+    then!(transfers[1] => withdrawal).reads("Detected Outgoing 12.500000 in block 103");
+}

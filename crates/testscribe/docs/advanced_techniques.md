@@ -44,6 +44,8 @@ written in many tests.
 - Instead of long pattern matches on nested errors, add a targeted check like `.has_valid_email(...)` or `.rejected_as_err_kind("...")`.
 - Instead of asserting an opaque boolean, add an ordering check like `.sorted_ascending()` or a domain check like `.within_credit_limit()`.
 
+- Instead of comparing whole structs, whose `Debug` fills the output, tell each domain value as one short sentence and check the sentence: `then!(transfers[0] => deposit).reads("Confirmed Incoming 50.000000 in block 101")`. See "Telling domain values" below.
+
 > Naming tip: avoid `is_*`/`to_*` prefixes for custom checks — they consume `self` by value, which triggers clippy's `wrong_self_convention` lint. Outcome wording (`rejected_as_...`, `has_...`) avoids the lint and reads better in test output.
 
 **Writing the check — the `VerifyValueExposed` step:**
@@ -54,6 +56,21 @@ A custom check is a trait implemented for `VerifyValue<'_, T>`. Inside the impl 
 - `this.reporter` — call `set_outcome(description, VerifyOutcome::Success | VerifyOutcome::Failure { details })`.
 
 Why two types? `VerifyValue` deliberately exposes **no** public fields or methods, so the only things IDE autocomplete offers on a `then!(...)` result are the checks themselves (`.eq`, `.contains`, your custom ones) — never internal plumbing. `VerifyValueExposed` is the escape hatch, used *only inside* a custom check's implementation, to reach those internals.
+
+**Telling domain values — the `Told` idiom:**
+`eq` prints both sides with `Debug`. For a struct with a few fields, or anything nested, that makes the `Then` line and the failure unreadable. Instead of a formatting helper in every test file, define two small traits once, in the module your test files share:
+
+- `Told` — `fn told(&self) -> String`, implemented for each domain value the tests look at. It is the one place that decides how a value is worded.
+- `CheckReads` — one check, `reads(expected)`, implemented for every `VerifyValue<'_, T>` where `T: Told`.
+
+```
+then!(transfers[0] => deposit).reads("Confirmed Incoming 50.000000 in block 101");
+```
+```text
+ |       -|  Then deposit reads Confirmed Incoming 50.000000 in block 101
+```
+
+`Told` is a trait of your test code rather than `Display` on purpose: the sentence a test wants is rarely the one production code prints, and integration tests are a separate crate, where `Display` cannot be implemented for the types of the crate under test. For a list, check the items that matter one by one, each under the name it has in the scenario; a check stays one line of output.
 
 Reference: [custom_checks.rs](../tests/custom_checks.rs)
 
