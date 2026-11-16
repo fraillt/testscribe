@@ -32,6 +32,15 @@ This changelog covers all crates in the workspace
   fail the tree. It does now, and is printed again where it failed.
 - panic messages were lost: a panicking test was reported with `<unknown msg>` and a panicking
   check with `panic: no info`.
+- `--exact` with the `exact_this` tag ran the whole tree when the tagged test was a leaf. It now
+  runs only the path to that test, as it did for a test with children.
+- a root test without `standalone` was run by nothing under the standard test harness, and
+  neither were the tests below it, while `cargo test` printed `ok`. Such a root now shows up as
+  an ignored test that says why, `ignored, a root test without standalone is not run by cargo test`.
+  With `harness = false` nothing changes.
+- the tests above an ignored test were executed again only to have their result thrown away,
+  once for every ignored branch. With one environment per path, running a single path of a tree
+  took almost as long as running all of it. An ignored test no longer has anything built for it.
 
 ### Changed
 

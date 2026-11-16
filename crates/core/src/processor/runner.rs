@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use super::run_state::{RunState, report_failure};
 use crate::processor::filter::Filter;
-use crate::processor::logger::{Logger, ParamInfo, TestRunInfo};
+use crate::processor::logger::{Logger, ParamInfo, SkipReason, TestRunInfo};
 use crate::test_case::{FqFnName, TestParams, Value};
 use crate::tests_tree::{AugmentedTestsTree, TestsTree};
 
@@ -50,19 +50,38 @@ impl Execution<'_> {
     /// Runs the last test of `chain`, after building what it starts from: the tests above it
     /// are executed again, down from the nearest one that kept what it built.
     async fn run_leaf(&mut self, chain: &mut [TestState<'_>]) {
-        let (leaf, above) = chain
-            .split_last_mut()
-            .expect("a chain has at least its root");
-        let resume_at = above.iter().rposition(|test| test.kept.is_some());
+        let leaf = chain.len() - 1;
+        let resume_at = chain.iter().rposition(|test| test.kept.is_some());
+        let resume_at = resume_at.unwrap_or(0);
+        let ignored_at = (resume_at..=leaf).find(|&idx| self.ignores(&chain[idx]));
+        // An ignored test needs nothing built for it. The tests above it are executed only if
+        // they have not run yet, for their own sake.
+        let start = match ignored_at {
+            Some(idx) if chain[resume_at..idx].iter().all(|test| test.run_count > 0) => idx,
+            _ => resume_at,
+        };
+
         let mut run_state = RunState::init();
-        for test in &mut above[resume_at.unwrap_or(0)..] {
+        for (idx, test) in chain.iter_mut().enumerate().skip(start) {
+            if ignored_at == Some(idx) {
+                let name = test.tree.node.test.name;
+                run_state = RunState::Skip(SkipReason::Ignored { name });
+            }
             let built = match test.kept.take() {
                 Some(kept) => kept,
                 None => self.execute(test, run_state).await,
             };
-            run_state = self.hand_on(test, built).await;
+            run_state = if idx < leaf {
+                self.hand_on(test, built).await
+            } else {
+                built
+            };
         }
-        self.execute(leaf, run_state).await;
+    }
+
+    fn ignores(&self, test: &TestState<'_>) -> bool {
+        let (info, _) = test.prepare_test_run();
+        !self.filter.should_run(test.tree.node.test, &info)
     }
 
     async fn execute(&mut self, test: &mut TestState<'_>, run_state: RunState) -> RunState {
@@ -70,7 +89,6 @@ impl Execution<'_> {
         test.run_count += 1;
         run_state
             .run_test(
-                self.filter,
                 self.logger,
                 test.tree.node.test,
                 self.started_at,
@@ -187,7 +205,7 @@ pub mod tests {
     use futures::executor::block_on;
 
     use super::*;
-    use crate::processor::filter::NoFilter;
+    use crate::processor::filter::{Filter, NoFilter};
     use crate::processor::logger::TestStatusUpdate;
     use crate::test_args::ParamDisplay;
     use crate::test_case::{
@@ -275,6 +293,16 @@ pub mod tests {
     }
 
     fn assert_tree(cases: Vec<TestCaseBuilder>, expected_runs: Vec<TestRunInfo>) {
+        let skipped = assert_filtered_tree(cases, &NoFilter, expected_runs);
+        assert!(skipped.is_empty());
+    }
+
+    /// Checks which tests were executed, in order, and returns the ones that were skipped.
+    fn assert_filtered_tree(
+        cases: Vec<TestCaseBuilder>,
+        filter: &dyn Filter,
+        expected_runs: Vec<TestRunInfo>,
+    ) -> Vec<&'static str> {
         let cases = cases
             .into_iter()
             .map(TestCaseBuilder::build)
@@ -286,7 +314,7 @@ pub mod tests {
         tree.verify(false).unwrap();
 
         let mut logger = LogActions::default();
-        block_on(TestsRunner::run_tests(&tree, &NoFilter, &mut logger));
+        block_on(TestsRunner::run_tests(&tree, filter, &mut logger));
         assert_eq!(logger.actions.len(), expected_runs.len(), "number of runs");
 
         for (index, (actual, expected)) in logger.actions.into_iter().zip(expected_runs).enumerate()
@@ -303,19 +331,81 @@ pub mod tests {
                 assert_eq!(a.display_str, e.display_str, "run index: {index}");
             }
         }
+        logger.skipped
     }
 
     #[derive(Default)]
     struct LogActions {
         actions: Vec<TestRunInfo>,
+        skipped: Vec<&'static str>,
     }
 
     impl Logger for LogActions {
         fn log(&mut self, test: &'static TestCase, update: TestStatusUpdate, _elapsed: Duration) {
-            if let TestStatusUpdate::Started { mut info } = update {
-                info.path.push(test.name);
-                self.actions.push(info);
+            match update {
+                TestStatusUpdate::Started { mut info } => {
+                    info.path.push(test.name);
+                    self.actions.push(info);
+                }
+                TestStatusUpdate::Skipped { .. } => self.skipped.push(test.name.name),
+                _ => {}
             }
+        }
+    }
+
+    struct IgnoreTest(&'static str);
+
+    impl Filter for IgnoreTest {
+        fn should_run(&self, test: &'static TestCase, _info: &TestRunInfo) -> bool {
+            test.name.name != self.0
+        }
+    }
+
+    /// An ignored test needs nothing built for it, so the tests above it are not executed
+    /// again to get to it: here `root` runs for `first` and for `last`, not for `ignored`.
+    #[test]
+    fn parents_are_not_executed_again_for_an_ignored_test() {
+        let skipped = assert_filtered_tree(
+            vec![
+                TestCaseBuilder::new("root"),
+                TestCaseBuilder::new("first").depends_on(|| FqFnName::new("", "root")),
+                TestCaseBuilder::new("ignored").depends_on(|| FqFnName::new("", "root")),
+                TestCaseBuilder::new("below_ignored").depends_on(|| FqFnName::new("", "ignored")),
+                TestCaseBuilder::new("last").depends_on(|| FqFnName::new("", "root")),
+            ],
+            &IgnoreTest("ignored"),
+            vec![
+                action("root", 0),
+                action("root.first", 0),
+                action("root", 1),
+                action("root.last", 0),
+            ],
+        );
+        assert_eq!(skipped, vec!["ignored", "below_ignored"]);
+    }
+
+    /// The tests above an ignored test still run when nothing else has run them: they are
+    /// tests in their own right.
+    #[test]
+    fn parents_of_an_ignored_test_run_once_for_their_own_sake() {
+        let skipped = assert_filtered_tree(
+            vec![
+                TestCaseBuilder::new("root"),
+                TestCaseBuilder::new("middle").depends_on(|| FqFnName::new("", "root")),
+                TestCaseBuilder::new("ignored").depends_on(|| FqFnName::new("", "middle")),
+                TestCaseBuilder::new("also_ignored").depends_on(|| FqFnName::new("", "middle")),
+            ],
+            &IgnoreAllBelow("middle"),
+            vec![action("root", 0), action("root.middle", 0)],
+        );
+        assert_eq!(skipped, vec!["ignored", "also_ignored"]);
+    }
+
+    struct IgnoreAllBelow(&'static str);
+
+    impl Filter for IgnoreAllBelow {
+        fn should_run(&self, _test: &'static TestCase, info: &TestRunInfo) -> bool {
+            info.path.last().is_none_or(|parent| parent.name != self.0)
         }
     }
 

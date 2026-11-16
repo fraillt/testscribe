@@ -112,6 +112,14 @@ use crate::derive_param_display::expand_param_display;
 /// Alternatively, skip `standalone` entirely and run tests with a custom runner
 /// (see `testscribe::standalone::run_all_sync` and the `harness = false` Cargo option).
 ///
+/// Under the standard test harness, nothing runs a root test that is not `standalone`, nor the
+/// tests below it. So that a forgotten `standalone` does not look like a suite that passed,
+/// such a root is listed as an ignored test:
+///
+/// ```text
+/// test my_root ... ignored, a root test without `standalone` is not run by `cargo test`
+/// ```
+///
 /// ## `cloneable` / `cloneable_async`
 ///
 /// By default, when a test has multiple children, the parent re-executes for every child branch,

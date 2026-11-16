@@ -83,8 +83,28 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
                 }
             }
         })
-    } else {
+    } else if fn_args.iter().any(is_given_arg) {
         None
+    } else {
+        // A root that is not standalone is run by nothing under the standard test harness,
+        // and neither are the tests below it. Without a word about it, a forgotten
+        // `standalone` looks like a suite that passed. The harness strips this function
+        // where it does not apply: in builds without it, and with `harness = false`.
+        ident = Ident::new(&format!("root_{}", visible_ident), visible_ident.span());
+        let explanation = format!(
+            "`{visible_name}` is a root test without `standalone`, so the standard test \
+             harness runs neither it nor the tests below it. Mark it \
+             `#[testscribe(standalone)]` (`standalone(tokio::test)` for an async test), or run \
+             its tree with a runner of your own."
+        );
+        Some(quote! {
+            #(#cfg_attrs)*
+            #[test]
+            #[ignore = "a root test without `standalone` is not run by `cargo test`"]
+            fn #visible_ident() {
+                panic!(#explanation);
+            }
+        })
     };
 
     let fq_name = quote!(testscribe::test_case::FqFnName::new(module_path!(), #test_struct_name));
@@ -277,6 +297,18 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
     });
 
     res
+}
+
+/// Whether the argument is `Given<...>`, which makes the test a child of another.
+fn is_given_arg(arg: &FnArg) -> bool {
+    if let FnArg::Typed(typed) = arg
+        && let Type::Path(path) = typed.ty.as_ref()
+        && let Some(segment) = path.path.segments.last()
+    {
+        segment.ident == "Given"
+    } else {
+        false
+    }
 }
 
 /// Ensures an `Env<...>` argument's first generic is a lifetime, inserting an anonymous `'_`

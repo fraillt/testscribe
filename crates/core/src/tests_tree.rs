@@ -98,8 +98,8 @@ fn visit_parent_recursive<E>(
 ) {
     for c in &mut child.childs {
         visit_parent_recursive(&mut child.node, c, f);
-        f(parent, &child.node);
     }
+    f(parent, &child.node);
 }
 
 fn visit_child_recursive<E>(
@@ -294,5 +294,55 @@ fn unfilter_parents(tree: &TestsTree, tests: &mut HashMap<FqFnName<'static>, Tes
 
     for child in &tree.childs {
         unfilter_parents(child, tests);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_case::{ParentFn, TestFn};
+
+    fn case(name: &'static str, parent: Option<fn() -> FqFnName<'static>>) -> TestCase {
+        TestCase {
+            name: FqFnName::new("", name),
+            tags: &[],
+            filename: "",
+            line_nr: 0,
+            test_fn: TestFn::SyncFn(|_, state, _env, _param| state),
+            parent: parent.map(|get_name| ParentFn { get_name }),
+            env: None,
+            params: None,
+            clone: None,
+        }
+    }
+
+    /// A leaf has to reach its parents too: the standalone runner marks the test tagged
+    /// `exact_this` and everything above it this way, and a leaf that did not count left the
+    /// whole tree running.
+    #[test]
+    fn update_parents_reaches_from_a_leaf_to_the_root() {
+        let cases: &'static [TestCase] = Box::leak(Box::new([
+            case("root", None),
+            case("middle", Some(|| FqFnName::new("", "root"))),
+            case("leaf", Some(|| FqFnName::new("", "middle"))),
+            case("other_leaf", Some(|| FqFnName::new("", "root"))),
+        ]));
+        let tree = create_test_trees(cases).remove(0);
+
+        let mut marked = AugmentedTestsTree::new(&tree, |test| test.name.name == "leaf");
+        marked.update_parents(|parent, child| parent.extra |= child.extra);
+
+        let mut marks = Vec::new();
+        marked.visit_breath(|node, _depth| marks.push((node.test.name.name, node.extra)));
+        marks.sort();
+        assert_eq!(
+            marks,
+            vec![
+                ("leaf", true),
+                ("middle", true),
+                ("other_leaf", false),
+                ("root", true)
+            ]
+        );
     }
 }

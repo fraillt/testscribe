@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use futures::FutureExt;
 
-use crate::processor::filter::Filter;
 use crate::processor::logger::{Logger, PanicLocation, SkipReason, TestRunInfo, TestStatusUpdate};
 use crate::processor::panic::extract_string_from_panic_payload;
 use crate::report::TestReport;
@@ -88,27 +87,14 @@ impl RunState {
 
     pub async fn run_test(
         self,
-        filter: &dyn Filter,
         logger: &mut dyn Logger,
         test: &'static TestCase,
         started_at: Instant,
         info: TestRunInfo,
         test_params: Option<Value>,
     ) -> RunState {
-        let name = test.name;
         match self {
             RunState::Run { test_data, env } => {
-                if !filter.should_run(test, &info) {
-                    logger.log(
-                        test,
-                        TestStatusUpdate::Skipped {
-                            info,
-                            reason: SkipReason::Ignored { name },
-                        },
-                        started_at.elapsed(),
-                    );
-                    return RunState::Skip(SkipReason::Ignored { name });
-                }
                 execute_test(logger, test, started_at, info, test_data, env, test_params).await
             }
             RunState::Skip(reason) => {
