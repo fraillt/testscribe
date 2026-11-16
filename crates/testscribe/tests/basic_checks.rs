@@ -1,11 +1,12 @@
 // This file is the reference for the built-in check forms, so it imports each check trait
 // explicitly to show which trait powers which `then!` form: `CheckEq` -> `.eq`/`.ne`,
 // `CheckContains` -> `.contains`, `CheckEmpty` -> `.is_empty`/`.is_not_empty`,
-// `CheckIs` -> `.is`/`.is_not`, `CheckRun` -> `.run`, `CheckAsyncRun` -> `.run_async`,
-// `CheckParams` -> `.params`. Real test suites don't list these — `use testscribe::prelude::*;`
+// `CheckIs` -> `.is`/`.is_not`, `CheckRejected` -> `.is_rejected`, `CheckRun` -> `.run`,
+// `CheckAsyncRun` -> `.run_async`, `CheckParams` -> `.params`. Real test suites don't list these — `use testscribe::prelude::*;`
 // re-exports all of them at once (see basic_tests_tree.rs).
 use testscribe::report::basic::{
-    CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckIs, CheckParams, CheckRun,
+    CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckIs, CheckParams, CheckRejected,
+    CheckRun,
 };
 use testscribe::{ParamDisplay, testscribe};
 
@@ -26,8 +27,8 @@ fn simple_value() {
 /// Running this test will give this outcome:
 /// ```text
 /// | 9.820μs|Given simple expression
-/// |       -|  Then added_values is equal to 7
-/// |       -|  And added_values is not equal to 5
+/// |       -|  Then added values is equal to 7
+/// |       -|  And added values is not equal to 5
 /// ```
 #[testscribe(standalone)]
 fn simple_expression() {
@@ -47,8 +48,8 @@ struct User {
 /// Running this test will give this outcome:
 /// ```text
 /// | 0.013ms|Given field access expression
-/// |       -|  Then user_name is equal to "hello"
-/// |       -|  And user_age is equal to 5
+/// |       -|  Then user name is equal to "hello"
+/// |       -|  And user age is equal to 5
 /// ```
 #[testscribe(standalone)]
 fn field_access_expression() {
@@ -87,9 +88,9 @@ fn containment_checks() {
 /// Running this test will give this outcome:
 /// ```text
 /// | 0.012ms|Given emptiness checks
-/// |       -|  Then sent_emails is empty
-/// |       -|  And error_message is empty
-/// |       -|  And open_orders is not empty
+/// |       -|  Then sent emails is empty
+/// |       -|  And error message is empty
+/// |       -|  And open orders is not empty
 /// ```
 #[testscribe(standalone)]
 fn emptiness_checks() {
@@ -115,9 +116,9 @@ enum Step {
 /// Running this test will give this outcome:
 /// ```text
 /// | 0.012ms|Given predicate checks
-/// |       -|  Then last_step is a rollback of block 102
-/// |       -|  And first_step is not a rollback
-/// |       -|  And first_step is applied to an even block
+/// |       -|  Then last step is a rollback of block 102
+/// |       -|  And first step is not a rollback
+/// |       -|  And first step is applied to an even block
 /// ```
 #[testscribe(standalone)]
 fn predicate_checks() {
@@ -131,6 +132,28 @@ fn predicate_checks() {
         "applied to an even block",
         |step| matches!(step, Step::Applied { block } if block % 2 == 0),
     );
+}
+
+fn pay(order_is_paid: bool) -> Result<(), String> {
+    if order_is_paid {
+        Err("order is already paid".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+/// The built-in `is_rejected` check is for an action that has to be refused, and names the
+/// reason: the error has to read exactly that when displayed. The action is performed first
+/// and its result is checked, never inside `then!`.
+/// Running this test will give this outcome:
+/// ```text
+/// | 0.010ms|Given rejection check
+/// |       -|  Then paying again is rejected: order is already paid
+/// ```
+#[testscribe(standalone)]
+fn rejection_check() {
+    let paying_again = pay(true);
+    then!(paying_again).is_rejected("order is already paid");
 }
 
 /// Running this test will give this outcome:

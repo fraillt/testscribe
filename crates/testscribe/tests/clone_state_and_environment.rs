@@ -53,11 +53,11 @@ impl Environment for SomeEnv {
 /// ```text
 /// | 3.260μs|Given expensive test state we want to clone
 /// | 4.280μs|  When first child test starts
-/// |       -|    Then test_state is equal to ClonedSync(1)
-/// |       -|    And env_state is equal to ClonedSync(1)
+/// |       -|    Then test state is equal to ClonedSync(1)
+/// |       -|    And env state is equal to ClonedSync(1)
 /// | 1.990μs|  When last child test
-/// |       -|    Then test_state is equal to ClonedSync(1)
-/// |       -|    And env_state is equal to ClonedSync(1)
+/// |       -|    Then test state is equal to ClonedSync(1)
+/// |       -|    And env state is equal to ClonedSync(1)
 ///```
 #[testscribe(standalone(tokio::test), cloneable)]
 async fn expensive_test_state_we_want_to_clone(_: Env<SomeEnv>) -> SomeEnv {
@@ -99,11 +99,11 @@ mod clone_sync {
 /// ```text
 /// | 3.330μs|Given state and env can only be cloned in async context
 /// | 4.320μs|  When first child test starts
-/// |       -|    Then test_state is equal to ClonedAsync(1)
-/// |       -|    And env_state is equal to ClonedAsync(1)
+/// |       -|    Then test state is equal to ClonedAsync(1)
+/// |       -|    And env state is equal to ClonedAsync(1)
 /// | 1.690μs|  When last child test
-/// |       -|    Then test_state is equal to ClonedAsync(1)
-/// |       -|    And env_state is equal to ClonedAsync(1)
+/// |       -|    Then test state is equal to ClonedAsync(1)
+/// |       -|    And env state is equal to ClonedAsync(1)
 ///```
 #[testscribe(standalone(tokio::test), cloneable_async)]
 async fn state_and_env_can_only_be_cloned_in_async_context(_: Env<SomeEnv>) -> SomeEnv {

@@ -32,6 +32,21 @@ impl<'a, T> VerifyValue<'a, T> {
     }
 }
 
+/// A variable name as the report prints it, with spaces for underscores: `keyboard_stock`
+/// reads `keyboard stock`, the way a test name does. Called by the generated `then!` macro at
+/// compile time; not intended to be called directly.
+#[doc(hidden)]
+pub const fn spaced_name<const N: usize>(name: &str) -> [u8; N] {
+    let name = name.as_bytes();
+    let mut spaced = [0; N];
+    let mut idx = 0;
+    while idx < N {
+        spaced[idx] = if name[idx] == b'_' { b' ' } else { name[idx] };
+        idx += 1;
+    }
+    spaced
+}
+
 /// Same as [`VerifyValue`], except all fields are public.
 ///
 /// Use it to implement custom, domain-specific checks: convert the [`VerifyValue`] you receive,
@@ -40,8 +55,9 @@ impl<'a, T> VerifyValue<'a, T> {
 ///
 /// Equality ([`eq`](crate::report::basic::CheckEq)), containment
 /// ([`contains`](crate::report::basic::CheckContains)), emptiness
-/// ([`is_empty`](crate::report::basic::CheckEmpty)) and predicates
-/// ([`is`](crate::report::basic::CheckIs)) already ship as built-in checks; a custom check is
+/// ([`is_empty`](crate::report::basic::CheckEmpty)), predicates
+/// ([`is`](crate::report::basic::CheckIs)) and refused actions
+/// ([`is_rejected`](crate::report::basic::CheckRejected)) already ship as built-in checks; a custom check is
 /// for something they don't express, or express too often. For example, a `sorted_ascending` check
 /// for `Vec<T>`, usable as `then!(list).sorted_ascending()`:
 ///
@@ -74,7 +90,8 @@ impl<'a, T> VerifyValue<'a, T> {
 /// }
 /// ```
 pub struct VerifyValueExposed<'a, T> {
-    /// Variable name (or alias) specified via `then!` macro
+    /// Variable name (or alias) specified via `then!` macro, as it is printed: with spaces
+    /// for underscores
     pub var_name: &'static str,
     /// A reference to an actual value
     pub actual_value: &'a T,

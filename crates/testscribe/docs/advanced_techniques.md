@@ -35,8 +35,9 @@ Generic assertions can become noisy and low-signal in both code and output, espe
 You can add project-local checks on `VerifyValue` so assertions read like domain language and output becomes clearer for humans.
 
 Equality (`eq`/`ne`), containment (`contains`, for `Vec<T>` membership and `String`/`&str`
-substrings), emptiness (`is_empty`/`is_not_empty`, for collections and texts) and predicates
-(`is`/`is_not`, for example to tell which variant of an enum a value is) are built in; reach for
+substrings), emptiness (`is_empty`/`is_not_empty`, for collections and texts), predicates
+(`is`/`is_not`, for example to tell which variant of an enum a value is) and refused actions
+(`is_rejected`, for a `Result` that has to be an error with a given message) are built in; reach for
 a custom check when those don't express the domain concept, or when the same predicate is
 written in many tests.
 

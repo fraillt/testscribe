@@ -16,6 +16,10 @@ Follow this loop for every test you write:
    someone who knows the domain but not the code.
 5. **Apply the [testing checklist](testing_checklist.md)** before moving on.
 
+To run one test with only the tests above it, name it in `TESTSCRIBE_ONLY`:
+`TESTSCRIBE_ONLY=order_shipped cargo test -- --nocapture`. Naming a test below the root to
+`cargo test` itself runs nothing: the harness only knows root tests.
+
 ## Core information
 
 MUST be read to idomatically write `testscribe` tests.
@@ -123,7 +127,10 @@ It is intentionally practical: good patterns, anti-patterns.
 	- Use: `then!("statement").params(list).run(...)`
 5. Do you verify what a value is (for example which enum variant), not what it equals?
 	- Use: `then!(variable).is("description", |value| matches!(value, ...))` or `is_not(...)`
-6. Is built-in output too generic (for example boolean `is_err`) and domain wording matters?
+6. Do you probe an action that has to be refused now?
+	- Use: `let paying_again = service.pay(order).await;` then
+	  `then!(paying_again).is_rejected("order is already paid")`
+7. Is built-in output too generic (for example boolean `is_err`) and domain wording matters?
 	- Use: a project-local custom check trait on `VerifyValue<'_, T>`.
 
 #### More elaborate examples
@@ -135,6 +142,10 @@ Syntax:
 
 Example:
 - `then!(available_stock).eq(3);`
+
+Output:
+- The name is printed with spaces for underscores: `Then available stock is equal to 3`.
+  Name variables and aliases so that this line reads as a sentence.
 
 When to use:
 - You already have a clearly named variable and want readable output.
@@ -216,7 +227,29 @@ Common misuse:
 - A description that does not match the predicate.
 - The same predicate repeated across many tests (write a custom check instead).
 
-#### 6) Project-local custom checks
+#### 6) Verify an action is refused
+
+Syntax:
+- `then!(result).is_rejected("reason")`, for a `Result<T, E>` where `E: Display`
+
+Example:
+- `let paying_again = service.pay(order_id).await;`
+- `then!(paying_again).is_rejected("order is already paid");`
+
+Behavior:
+- Output reads `Then paying again is rejected: order is already paid`.
+- The check passes only for an `Err` whose displayed text is exactly the reason. It fails for
+  `Ok` ("it was accepted") and for another error, which it shows.
+
+When to use:
+- The probes of the SHAPE loop: after an action, the actions that became impossible.
+- Name the variable after the attempt (`paying_again`, `shipping_before_payment`).
+
+Common misuse:
+- Performing the action inside `then!(...)`: perform it first, then check its result.
+- `then!(result.is_err() => ...).eq(true)`: it passes for any failure, an unrelated one included.
+
+#### 7) Project-local custom checks
 
 Pattern:
 - Implement a trait for `VerifyValue<'_, T>` in test code.

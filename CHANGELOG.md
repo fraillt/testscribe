@@ -16,11 +16,17 @@ This changelog covers all crates in the workspace
 ### Added
 
 - built-in checks `is_empty` and `is_not_empty` for collections and texts:
-  `then!(sent_emails).is_empty()` reports `Then sent_emails is empty`.
+  `then!(sent_emails).is_empty()` reports `Then sent emails is empty`.
 - built-in predicate checks `is` and `is_not`, for what a value is rather than what it equals,
   such as the variant of an enum with a payload:
   `then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }))` reports
   `Then step is a rollback`, and shows the actual value when it fails.
+- built-in check `is_rejected` for an action that has to be refused:
+  `then!(paying_again).is_rejected("order is already paid")` passes for an error that reads
+  exactly that, and reports `Then paying again is rejected: order is already paid`.
+- `TESTSCRIBE_ONLY=<test name> cargo test` runs only the path from the root to that test, for a
+  test anywhere in a standalone tree. Naming a test below the root to `cargo test` itself runs
+  nothing, because the harness only knows the roots.
 
 ### Fixed
 
@@ -43,6 +49,10 @@ This changelog covers all crates in the workspace
   took almost as long as running all of it. An ignored test no longer has anything built for it.
 
 ### Changed
+
+- a variable name or alias is printed with spaces for its underscores, the way a test name is:
+  `then!(keyboard_stock).eq(5)` reports `Then keyboard stock is equal to 5`, where it was
+  `Then keyboard_stock is equal to 5`. `VerifyValueExposed::var_name` holds the printed form.
 
 - with `--nocapture`, a standalone tree is printed in one piece when it has finished, so the lines
   of trees running in parallel no longer mix. It still prints test by test when it runs alone

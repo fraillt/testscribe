@@ -15,6 +15,8 @@ use std::rc::Rc;
 use std::{cell::RefCell, time::Instant};
 
 pub use check_report::{CheckReporter, ParamCheckReporter, VerifyOutcome};
+#[doc(hidden)]
+pub use verify_object::spaced_name;
 pub use verify_object::{VerifyStatement, VerifyStatementExposed, VerifyValue, VerifyValueExposed};
 
 use crate::{

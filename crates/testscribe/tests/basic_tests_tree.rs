@@ -77,7 +77,7 @@ fn sum_written_down(Given(sum): Given<Another6IsAdded>) -> String {
 /// ```text
 /// | 4.080μs|Given async test
 /// | 1.320μs|  When child must be async as well
-/// |       -|    Then async_child_state is equal to true
+/// |       -|    Then async child state is equal to true
 /// ```
 #[testscribe(standalone(tokio::test))]
 async fn async_test() -> bool {

@@ -61,6 +61,52 @@ pub use crate::runner::run_test_tree;
 /// This tag is ignored by default, but if `--exact` flag is used, only tests with this tag will be run.
 pub const ONLY_THIS_TAG_NAME: &str = "exact_this";
 
+/// Names the tests to run in standalone trees, without touching the source:
+/// `TESTSCRIBE_ONLY=order_shipped cargo test` runs the path from the root to `order_shipped`
+/// and nothing else. Several names are separated by commas. A name is the function name of the
+/// test, or the name of its marker type (`OrderShipped`).
+///
+/// The harness only knows root tests, so naming a test below the root to `cargo test` itself
+/// runs nothing. A tree without any of the named tests is not run.
+pub const ONLY_ENV_NAME: &str = "TESTSCRIBE_ONLY";
+
+/// Whether `test_name`, the marker type of a test, is one of the comma-separated names in `only`.
+fn is_named(only: &str, test_name: &str) -> bool {
+    only.split(',').map(str::trim).any(|name| {
+        let marker_type: String = name
+            .split('_')
+            .filter(|word| !word.is_empty())
+            .flat_map(|word| {
+                let (first, rest) = word.split_at(1);
+                [first.to_ascii_uppercase(), rest.to_string()]
+            })
+            .collect();
+        test_name == name || test_name == marker_type
+    })
+}
+
+/// The filter that runs the wanted tests of `tree` and the tests above them, or `None` if the
+/// tree has no wanted test.
+fn paths_to(tree: &TestsTree, wanted: impl Fn(&'static TestCase) -> bool) -> Option<FilterByPath> {
+    let mut marked = AugmentedTestsTree::new(tree, wanted);
+    marked.update_parents(|parent, child| {
+        parent.extra |= child.extra;
+    });
+    if !marked.node.extra {
+        return None;
+    }
+    let mut paths = vec![];
+    marked.visit_breath(|node, depth| {
+        if node.extra {
+            if paths.len() <= depth {
+                paths.push(HashSet::new());
+            }
+            paths[depth].insert(node.test.name);
+        }
+    });
+    Some(FilterByPath { paths })
+}
+
 /// This function signature is used by proc-macros to run `standalone` tests synchronously.
 pub fn run_sync(
     test_cases: &'static [TestCase],
@@ -90,28 +136,20 @@ pub async fn run_async(
     let mut stdout = std::io::stdout();
     let mut vecout = Vec::new();
     let output: &mut dyn Write = if live { &mut stdout } else { &mut vecout };
-    let filter: &dyn Filter = if args.exact {
-        let mut tree1 =
-            AugmentedTestsTree::new(&tree, |test| test.tags.contains(&ONLY_THIS_TAG_NAME));
-        tree1.update_parents(|p, c| {
-            p.extra |= c.extra;
-        });
-        if tree1.node.extra {
-            let mut paths = vec![];
-            tree1.visit_breath(|node, depth| {
-                if node.extra {
-                    if paths.len() <= depth {
-                        paths.push(HashSet::new());
-                    }
-                    paths[depth].insert(node.test.name);
-                }
-            });
-            &FilterByPath { paths }
-        } else {
-            &NoFilter
-        }
+    let paths = if let Ok(only) = std::env::var(ONLY_ENV_NAME) {
+        let Some(paths) = paths_to(&tree, |test| is_named(&only, test.name.name)) else {
+            // None of the named tests is in this tree, so it was not asked for.
+            return Ok(());
+        };
+        Some(paths)
+    } else if args.exact {
+        paths_to(&tree, |test| test.tags.contains(&ONLY_THIS_TAG_NAME))
     } else {
-        &NoFilter
+        None
+    };
+    let filter: &dyn Filter = match &paths {
+        Some(paths) => paths,
+        None => &NoFilter,
     };
 
     let mut printer = TestFormatter::new(output);
@@ -283,6 +321,18 @@ mod tests {
             test_threads,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn test_is_named_by_its_function_or_by_its_marker_type() {
+        assert!(is_named("order_shipped", "OrderShipped"));
+        assert!(is_named("OrderShipped", "OrderShipped"));
+        assert!(is_named("order_paid, order_shipped", "OrderShipped"));
+        assert!(is_named("another_6_is_added", "Another6IsAdded"));
+        // A name is the whole name: a part of it names nothing.
+        assert!(!is_named("order", "OrderShipped"));
+        assert!(!is_named("order_shipped_twice", "OrderShipped"));
+        assert!(!is_named("", "OrderShipped"));
     }
 
     #[test]

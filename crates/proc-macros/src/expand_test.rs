@@ -275,16 +275,24 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
         #vis #asyncness fn #ident(mut _report: testscribe::report::TestReport, #arg_parent, #arg_env, #arg_param) #return_type {
             macro_rules! then {
                 ($var:ident) => {
+                    then!($var => $var)
+                };
+                ($var:expr => $as_var:ident) => {
                     ::testscribe::report::VerifyValue::new(
                         &mut _report,
                         &($var),
-                        stringify!($var),
+                        // The name with spaces for underscores, worked out at compile time.
+                        const {
+                            const NAME: &str = stringify!($as_var);
+                            const SPACED: [u8; NAME.len()] = ::testscribe::report::spaced_name(NAME);
+                            match ::core::str::from_utf8(&SPACED) {
+                                Ok(spaced) => spaced,
+                                Err(_) => panic!("a name with spaces for underscores is still text"),
+                            }
+                        },
                         line!(),
                         file!(),
                     )
-                };
-                ($var:expr => $as_var:ident) => {
-                    ::testscribe::report::VerifyValue::new(&mut _report, &($var), stringify!($as_var), line!(), file!())
                 };
                 ($msg:literal) => {
                     ::testscribe::report::VerifyStatement::<#is_async>::new(&mut _report, $msg, line!(), file!())

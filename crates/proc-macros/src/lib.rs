@@ -108,6 +108,15 @@ use crate::derive_param_display::expand_param_display;
 /// disappears entirely. Writing a harness attribute such as `#[test]` or `#[tokio::test]`
 /// on the function is a compile error pointing to `standalone(...)`.
 ///
+/// The harness only knows the root, so naming a test below it to `cargo test` runs nothing. To
+/// run only the path from the root to one test, name the test in `TESTSCRIBE_ONLY`:
+///
+/// ```text
+/// TESTSCRIBE_ONLY=order_shipped cargo test -- --nocapture
+/// ```
+///
+/// Several names are separated by commas. Trees without a named test are not run.
+///
 /// Requires the `standalone` feature of the `testscribe` crate (enabled by default).
 /// Alternatively, skip `standalone` entirely and run tests with a custom runner
 /// (see `testscribe::standalone::run_all_sync` and the `harness = false` Cargo option).
@@ -176,12 +185,17 @@ use crate::derive_param_display::expand_param_display;
 /// | `then!(expression => alias)` | `VerifyValue` | verify an expression; output uses the alias |
 /// | `then!("statement")` | `VerifyStatement` | run a closure under a narrative statement |
 ///
+/// A variable name or alias is printed with spaces for its underscores, the way a test name
+/// is: `then!(keyboard_stock).eq(5)` reports `Then keyboard stock is equal to 5`.
+///
 /// The returned objects carry no methods of their own; checks come from extension traits in
 /// `testscribe::report::basic`, which must be imported:
 ///
 /// - `CheckEq` — `then!(sum).eq(3)`, `then!(sum).ne(5)`
 /// - `CheckIs` — `then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }))`,
 ///   and `is_not`; the description completes the sentence `step is ...`
+/// - `CheckRejected` — `then!(paying_again).is_rejected("order is already paid")`, for the
+///   `Result` of an action that has to be refused for that reason
 /// - `CheckRun` — `then!("payment is accepted").run(|| ...)`; the check fails if the closure
 ///   panics, returns `false`, or returns an `Err`
 /// - `CheckAsyncRun` — `then!("...").run_async(async || ...).await` (async tests only)

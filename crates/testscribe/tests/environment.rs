@@ -36,9 +36,9 @@ impl Environment for NextEnv {
 /// Running this test will give this outcome:
 /// ```text
 /// | 5.030μs|Given env initialized
-/// |       -|  Then initial_env_value is equal to 54
+/// |       -|  Then initial env value is equal to 54
 /// | 1.610μs|  When env transformed
-/// |       -|    Then transformed_env_value is equal to true
+/// |       -|    Then transformed env value is equal to true
 /// ```
 #[testscribe(standalone)]
 fn env_initialized(e: Env<InitialEnv>) {

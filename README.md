@@ -33,7 +33,7 @@ testscribe output reads like a domain narrative instead:
  |       -|    Then value is equal to None
  | 2.950μs|  When value is replaced to 5
  |       -|    Then it is equal to 5
- |       -|    And previous_value is equal to 4
+ |       -|    And previous value is equal to 4
 ```
 
 - Models real domain events

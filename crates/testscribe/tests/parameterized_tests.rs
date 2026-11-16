@@ -34,12 +34,12 @@ fn test_params() -> Vec<TestCaseParam> {
 /// |        |With nr=1
 /// |       -|  Then nr is equal to 1
 /// | 2.600μs|  When child test executed for each param
-/// |       -|    Then extra_data is equal to true
+/// |       -|    Then extra data is equal to true
 /// | 1.330μs|Given add numbers
 /// |        |With nr=2
 /// |       -|  Then nr is equal to 2
 /// | 1.370μs|  When child test executed for each param
-/// |       -|    Then extra_data is equal to false
+/// |       -|    Then extra data is equal to false
 ///```
 #[testscribe(standalone)]
 fn add_numbers(p: Param<TestParams>) -> bool {

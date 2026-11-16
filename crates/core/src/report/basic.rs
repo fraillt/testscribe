@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::ops::AsyncFnMut;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -274,6 +274,41 @@ fn get_predicate_outcome<T: Debug>(
                     .unwrap_or_else(|| "no info".to_owned())
             ),
         },
+    }
+}
+
+/// Check for an action that has to be refused:
+/// `then!(paying_again).is_rejected("order is already paid")`.
+///
+/// For the `Result` of the action. After every action there are actions that are no longer
+/// possible, and a test probes them; this check says for which reason one was refused, where
+/// `is_err()` would accept any failure, an unrelated one included.
+// These are checks, not questions: like every check they use up the value they report on.
+#[allow(clippy::wrong_self_convention)]
+pub trait CheckRejected {
+    /// Checks that the result is an error that reads `reason` when displayed; reports
+    /// `<name> is rejected: <reason>`.
+    fn is_rejected(self, reason: &str);
+}
+
+impl<T, E> CheckRejected for VerifyValue<'_, Result<T, E>>
+where
+    E: Display,
+{
+    fn is_rejected(self, reason: &str) {
+        let this = VerifyValueExposed::new(self);
+        this.reporter.set_outcome(
+            format!("{} is rejected: {}", this.var_name, reason),
+            match this.actual_value {
+                Err(actual) if actual.to_string() == reason => VerifyOutcome::Success,
+                Err(actual) => VerifyOutcome::Failure {
+                    details: format!("rejected: {actual}"),
+                },
+                Ok(_) => VerifyOutcome::Failure {
+                    details: "it was accepted".to_string(),
+                },
+            },
+        );
     }
 }
 

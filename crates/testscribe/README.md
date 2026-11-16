@@ -60,7 +60,7 @@ Example output:
  |       -|    Then value is equal to None
  | 2.950μs|  When value is replaced to 5
  |       -|    Then it is equal to 5
- |       -|    And previous_value is equal to 4
+ |       -|    And previous value is equal to 4
 ```
 
 Instead of isolated test results, you get a readable scenario: **Given → When → Then**

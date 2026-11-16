@@ -27,7 +27,7 @@ async fn is_empty_fails_for_a_value_with_something_in_it_and_shows_it() {
         run.failed(),
         vec![("TwoEmailsSent", vec![r#"actual: ["welcome", "receipt"]"#])]
     );
-    assert!(run.output.contains("sent_emails is empty"));
+    assert!(run.output.contains("sent emails is empty"));
 }
 
 #[tokio::test]
@@ -35,5 +35,5 @@ async fn is_not_empty_fails_for_an_empty_value() {
     let run = run_tree(&CASES, "NoOrdersOpen").await;
 
     assert_eq!(run.failed(), vec![("NoOrdersOpen", vec!["actual: []"])]);
-    assert!(run.output.contains("open_orders is not empty"));
+    assert!(run.output.contains("open orders is not empty"));
 }

@@ -48,9 +48,13 @@ installed version.
 
 ## Stable essentials
 
+- One test and the tests above it: `TESTSCRIBE_ONLY=order_shipped cargo test -- --nocapture`
+  (`cargo test order_shipped` runs nothing unless it is a root).
+
 - Test names sound like events: `payment_attempt_failed`, not `test_payment`.
 - `then!(variable).eq(..)` / `then!(expr => alias).eq(..)` /
   `then!(variable).is("description", |v| matches!(v, ..))` /
+  `then!(result).is_rejected("reason")` /
   `then!("statement").run(|| ..)` / `then!("statement").params(list).run(|item| ..)`
 - Async parents require async children.
 - Custom checks consume `self`: name them `rejected_as_*` / `has_*`, never `is_*`/`to_*`
