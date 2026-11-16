@@ -37,6 +37,58 @@ MUST be read to idomatically write `testscribe` tests.
   property tests, benchmarks).
 - After you write a test make sure it passes the [testing checklist](testing_checklist.md)
 
+## State between parent and child
+
+A test receives what its parent returned through `Given<Parent>`, and passes on what it returns.
+Pick the form by what the test does with the state:
+
+- **Only reads it**: `cart: Given<CartCreated>`, then `cart.items` or `*cart` (`Given` derefs to
+  the state). No `mut`: a `mut` that is not needed is an `unused_mut` warning.
+- **Changes it and passes it on**: `mut cart: Given<CartCreated>`, change it through `cart`,
+  and return `cart.into_inner()`.
+- **Passes on a different type**: take the state by value, either by destructuring in the
+  argument, `Given(cart): Given<CartCreated>`, or with `cart.into_inner()` in the body, and
+  build the new state from it:
+
+  ```rust
+  #[testscribe]
+  fn cart_checked_out(Given(cart): Given<CartCreated>) -> Order {
+      let order = checkout(cart);
+      then!(order.status => order_status).eq(OrderStatus::Placed);
+      order
+  }
+  ```
+
+- A test that returns nothing passes `()` to its children.
+
+Reference: [basic_tests_tree.rs](../tests/basic_tests_tree.rs)
+
+## No action to test: pure functions
+
+A conversion, a parser or a validation rule has inputs and outputs and no side effects, so there
+is no action and no tree. Write one standalone test with a table of cases; each case becomes a
+row in the output:
+
+```rust
+#[derive(Clone, ParamDisplay)]
+struct NameCase {
+    name: &'static str,
+    accepted: bool,
+}
+
+#[testscribe(standalone)]
+fn user_name_validation_rules_defined() {
+    then!("user name is accepted or rejected by validation rules")
+        .params([
+            NameCase { name: "alice", accepted: true },
+            NameCase { name: "al", accepted: false },
+        ])
+        .run(|case| validate_user_name(case.name).is_ok() == case.accepted);
+}
+```
+
+More on this and on other cases that do not obviously fit: [does it fit?](does_it_fit.md)
+
 ## Good patterns, anti-patterns
 
 It is intentionally practical: good patterns, anti-patterns.

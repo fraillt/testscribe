@@ -11,8 +11,8 @@ problem carries what was done about it since.
 | 3 | no check for "is empty" | added |
 | 4 | readable output needs a helper per file | documented as an idiom |
 | 5 | enum variants with payloads | added |
-| 6 | pure functions have no action | was documented already |
-| 7 | small ergonomics | open |
+| 6 | pure functions have no action | example added to the agent guide |
+| 7 | small ergonomics | documented |
 
 ## What worked well
 
@@ -135,8 +135,8 @@ model the guides teach. A short example of this case in `llms.md` would remove t
 
 **Was documented already.** `docs/does_it_fit.md` has this exact case: a standalone node with a
 `params` check, used for its readable output only. `llms.md` points there in one line of its
-"Core information"; the agent did not follow it. A short example in `llms.md` itself might still
-help.
+"Core information"; the agent did not follow it. `llms.md` now has the short example itself, under
+"No action to test: pure functions", and points to `does_it_fit.md` for the rest.
 
 ### 7. Small ergonomics
 
@@ -145,7 +145,16 @@ help.
 - Changing the state type between parent and child needs `into_inner()` first; it took a moment
   to find.
 
-**Open.** Not looked at.
+**Documented.** Neither is something the library should change:
+
+- the `unused_mut` warning is the compiler being right, the same as for any function argument.
+  Silencing it from the macro would hide it where it is useful;
+- `into_inner()` and destructuring in the argument (`Given(state): Given<Parent>`) were described
+  only in the rustdoc of `Given`, which an agent working from `llms.md` and `tests/` does not see.
+
+`llms.md` now has a section "State between parent and child" that says which form to write when
+a test only reads the state, changes it, or passes on a different type, and
+`tests/basic_tests_tree.rs` has a test that passes on a different type.
 
 ## Not measured
 

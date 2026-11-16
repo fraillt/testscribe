@@ -24,6 +24,8 @@ fn divide_by(a: i32, b: i32) -> i32 {
 /// |       -|    Then sum is equal to 9
 /// | 1.070μs|    When divided by 2
 /// |       -|      Then result is equal to 4
+/// | 2.080μs|    When sum written down
+/// |       -|      Then note is equal to "the sum is 9"
 /// ```
 #[testscribe(standalone)]
 fn one_and_two_is_added() -> i32 {
@@ -57,6 +59,17 @@ fn another_6_is_added(mut state: Given<OneAndTwoIsAdded>) -> i32 {
 #[testscribe]
 fn divided_by_2(state: Given<Another6IsAdded>) {
     then!(divide_by(*state, 2) => result).eq(4);
+}
+
+/// A test may pass on a state of another type than the one it received: here an `i32` comes in
+/// and a `String` goes out. Destructuring `Given` in the argument binds the parent's value
+/// itself, owned, ready to be moved into the new state; `state.into_inner()` does the same in
+/// the body. (`*state` only works for `Copy` values.)
+#[testscribe]
+fn sum_written_down(Given(sum): Given<Another6IsAdded>) -> String {
+    let note = format!("the sum is {sum}");
+    then!(note).eq("the sum is 9");
+    note
 }
 
 /// Async tests are supported as well.
