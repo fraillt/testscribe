@@ -54,7 +54,7 @@ hear of the binaries after it.
 
 ### Executions and times
 
-On the page of a batch every test shows how long it took, and how often it was executed when
+On the page of a batch, and in a run as it happens, every test shows how long it took, and how often it was executed when
 that was more than once. Click the time for the test with its branches, the tests below it: for
 each of them how often it was executed, the time in the test itself, and its setup time, and
 all of that summed up.

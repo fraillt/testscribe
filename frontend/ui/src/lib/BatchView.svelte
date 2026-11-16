@@ -1,6 +1,7 @@
 <script lang="ts">
   import { duration, title } from './narrative'
   import OutcomeText from './OutcomeText.svelte'
+  import TimingPanel from './TimingPanel.svelte'
   import type { Batch, BatchSummary, RunMode, StoredTest, TestId } from './protocol'
   import { frontend } from './store.svelte'
 
@@ -65,16 +66,6 @@
         other.path.length >= test.path.length &&
         test.path.every((name, idx) => other.path[idx] === name),
     )
-  }
-
-  function sum(tests: StoredTest[]) {
-    const total = { runs: 0, test_us: 0, setup_us: 0 }
-    for (const test of tests) {
-      total.runs += test.runs
-      total.test_us += test.test_us
-      total.setup_us += test.setup_us
-    }
-    return total
   }
 
   /** Picks a test and the tests below it, or lets go of them. */
@@ -170,43 +161,17 @@
       </div>
       {#if timed === key(test)}
         {@const below = branches(test)}
-        {@const total = sum(below)}
-        <div class="timing" style:--depth={test.path.length - 1}>
-          <table>
-            <thead>
-              <tr><th></th><th>executed</th><th>test</th><th>setup</th><th>total</th></tr>
-            </thead>
-            <tbody>
-              {#each below as branch (key(branch))}
-                <tr>
-                  <td style:padding-left="{(branch.path.length - test.path.length) * 1.25}rem">
-                    {title(branch.path.at(-1) ?? '')}
-                  </td>
-                  <td>{branch.runs}×</td>
-                  <td>{duration(branch.test_us)}</td>
-                  <td>{duration(branch.setup_us)}</td>
-                  <td>{duration(branch.test_us + branch.setup_us)}</td>
-                </tr>
-              {/each}
-            </tbody>
-            {#if below.length > 1}
-              <tfoot>
-                <tr>
-                  <td>with its branches</td>
-                  <td>{total.runs}×</td>
-                  <td>{duration(total.test_us)}</td>
-                  <td>{duration(total.setup_us)}</td>
-                  <td>{duration(total.test_us + total.setup_us)}</td>
-                </tr>
-              </tfoot>
-            {/if}
-          </table>
-          <p>
-            A test is executed again for every branch below it, unless what it built can be copied. Setup is the
-            time before a test starts: its environment is created, and what it starts from is copied.
-            {#if test.path.length === 1}Test and setup time together are the time of the whole tree.{/if}
-          </p>
-        </div>
+        <TimingPanel
+          depth={test.path.length - 1}
+          wholeTree={test.path.length === 1}
+          rows={below.map((branch) => ({
+            name: title(branch.path.at(-1) ?? ''),
+            depth: branch.path.length - test.path.length,
+            runs: branch.runs,
+            test_us: branch.test_us,
+            setup_us: branch.setup_us,
+          }))}
+        />
       {/if}
     {/each}
   </section>
@@ -336,40 +301,6 @@
   .runs {
     color: var(--accent);
     margin-right: 0.3rem;
-  }
-  .timing {
-    margin: 0.25rem 0.75rem 0.6rem calc(3.75rem + var(--depth) * 1.25rem);
-    padding: 0.5rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: var(--bg);
-    font-size: 0.8rem;
-  }
-  .timing table {
-    border-collapse: collapse;
-    font-family: var(--mono);
-  }
-  .timing th,
-  .timing td {
-    text-align: right;
-    padding: 0.05rem 0 0.05rem 1.5rem;
-    font-weight: normal;
-  }
-  .timing th {
-    color: var(--muted);
-  }
-  .timing td:first-child {
-    text-align: left;
-    padding-right: 1rem;
-  }
-  .timing tfoot td {
-    border-top: 1px solid var(--border);
-    font-weight: 600;
-  }
-  .timing p {
-    margin: 0.5rem 0 0;
-    color: var(--muted);
-    max-width: 44rem;
   }
   .nothing {
     color: var(--muted);

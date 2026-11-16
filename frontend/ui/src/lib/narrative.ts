@@ -23,8 +23,18 @@ export interface Table {
 
 export type StepStatus = 'running' | 'passed' | 'failed' | 'skipped'
 
+/** How often a test was executed so far, and the time that took. */
+export interface Timing {
+  runs: number
+  test_us: number
+  /** The time before the test started, since the test before it ended. */
+  setup_us: number
+}
+
 export interface Step {
   test: FqName
+  /** The names from the root down to the test, as the key of its timing. */
+  path: string
   title: string
   depth: number
   status: StepStatus
@@ -33,6 +43,7 @@ export interface Step {
   /** A step that is not the first run of its test: shown only because it failed. */
   rerun: boolean
   startedUs: number
+  setupUs: number
   durationUs: number | null
   panic: string | null
   skipped: string | null
@@ -51,6 +62,14 @@ export interface Tree {
   hidden: Step | null
   shownAsFailed: Set<string>
   counts: { passed: number; failed: number; skipped: number }
+  /** By the path of the test, every execution counted: also the ones that are not shown. */
+  timings: Record<string, Timing>
+  /** When the test before the current one ended, since the tree started. */
+  lastEndUs: number
+}
+
+export function pathKey(names: FqName[]): string {
+  return JSON.stringify(names.map(fullName))
 }
 
 export function fullName(name: FqName): string {
@@ -77,6 +96,8 @@ export function newTree(outline: TestNode): Tree {
     hidden: null,
     shownAsFailed: new Set(),
     counts: { passed: 0, failed: 0, skipped: 0 },
+    timings: {},
+    lastEndUs: 0,
   }
 }
 
@@ -84,6 +105,8 @@ function newStep(test: FqName, info: RunInfo, startedUs: number): Step {
   const param = info.param_info
   return {
     test,
+    path: pathKey([...info.path, test]),
+    setupUs: 0,
     title: title(test.name),
     depth: info.path.length,
     status: 'running',
@@ -114,6 +137,7 @@ export function apply(tree: Tree, event: TestsEvent): void {
   switch (update.kind) {
     case 'Started': {
       const step = newStep(event.test, update.info, event.elapsed_us)
+      step.setupUs = Math.max(0, event.elapsed_us - tree.lastEndUs)
       if (step.rerun) tree.hidden = step
       else tree.steps.push(step)
       break
@@ -162,6 +186,11 @@ export function apply(tree: Tree, event: TestsEvent): void {
       step.panic = update.panic_message
       step.status = step.panic !== null || failedCheck ? 'failed' : 'passed'
       step.durationUs = event.elapsed_us - step.startedUs
+      const timing = (tree.timings[step.path] ??= { runs: 0, test_us: 0, setup_us: 0 })
+      timing.runs += 1
+      timing.test_us += step.durationUs
+      timing.setup_us += step.setupUs
+      tree.lastEndUs = event.elapsed_us
       const key = fullName(step.test)
       if (step.rerun) {
         // A test is shown for its first run. A later run is shown only if it fails where no

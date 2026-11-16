@@ -1,8 +1,27 @@
 <script lang="ts">
-  import { duration, title, type Tree } from './narrative'
-  import type { TestNode } from './protocol'
+  import { duration, pathKey, title, type Tree } from './narrative'
+  import type { FqName, TestNode } from './protocol'
+  import TimingPanel, { type TimingRow } from './TimingPanel.svelte'
 
   let { tree }: { tree: Tree } = $props()
+
+  /** The step whose test is shown with its executions and times. */
+  let timed = $state<number | null>(null)
+
+  /** The test on `path` and the tests below it that were executed, in the order they are written. */
+  function branches(path: string): TimingRow[] {
+    const rows: TimingRow[] = []
+    const visit = (node: TestNode, above: FqName[], depth: number | null) => {
+      const names = [...above, node.node.name]
+      const key = pathKey(names)
+      if (key === path) depth = 0
+      const timing = tree.timings[key]
+      if (depth !== null && timing) rows.push({ name: title(node.node.name.name), depth, ...timing })
+      for (const child of node.childs) visit(child, names, depth === null ? null : depth + 1)
+    }
+    visit(tree.outline, [], null)
+    return rows
+  }
 
   const marks = { running: '…', passed: '✓', failed: '✗', skipped: '–' } as const
 </script>
@@ -36,7 +55,20 @@
     {#each tree.steps as step, idx (idx)}
       <div class="step {step.status}" style:--depth={step.depth} title={step.skipped ?? ''}>
         <span class="mark">{marks[step.status]}</span>
-        <span class="time">{step.durationUs === null ? '' : duration(step.durationUs)}</span>
+        {#if step.durationUs === null}
+          <span class="time"></span>
+        {:else}
+          {@const runs = tree.timings[step.path]?.runs ?? 1}
+          <button
+            class="time"
+            class:open={timed === idx}
+            title="executions and times of this test and its branches"
+            onclick={() => (timed = timed === idx ? null : idx)}
+          >
+            {#if runs > 1}<span class="runs">{runs}×</span>{/if}
+            {duration(step.durationUs)}
+          </button>
+        {/if}
         <span class="text">
           <b>{step.depth === 0 ? 'Given' : 'When'}</b>
           {step.title}
@@ -95,6 +127,9 @@
           </div>
         {/if}
       {/each}
+      {#if timed === idx}
+        <TimingPanel inset={8.25} depth={step.depth} wholeTree={step.depth === 0} rows={branches(step.path)} />
+      {/if}
     {/each}
   </div>
 </section>
@@ -162,7 +197,7 @@
   .step,
   .line {
     display: grid;
-    grid-template-columns: 1.5rem 4.5rem 1fr;
+    grid-template-columns: 1.5rem 6rem 1fr;
     padding: 0 0.75rem;
   }
   .step {
@@ -176,6 +211,24 @@
     color: var(--muted);
     text-align: right;
     padding-right: 0.75rem;
+  }
+  button.time {
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
+    cursor: pointer;
+    margin-right: 0.35rem;
+    padding: 0 0.4rem 0 0;
+    white-space: nowrap;
+  }
+  button.time:hover,
+  button.time.open {
+    background: var(--hover);
+    color: var(--text);
+  }
+  .runs {
+    color: var(--accent);
   }
   .mark {
     text-align: center;
