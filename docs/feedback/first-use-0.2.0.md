@@ -10,7 +10,7 @@ problem carries what was done about it since.
 | 2 | output of parallel roots interleaves | fixed |
 | 3 | no check for "is empty" | added |
 | 4 | readable output needs a helper per file | open, a design question |
-| 5 | enum variants with payloads | open, a design question |
+| 5 | enum variants with payloads | added |
 | 6 | pure functions have no action | was documented already |
 | 7 | small ergonomics | open |
 
@@ -113,10 +113,10 @@ For "this step was a rollback of block 102" the shortest form was
 which the guidelines discourage. A custom check is the idiomatic answer but is heavy for one or
 two uses. A built-in `.matches(pattern)` style check would cover it.
 
-**Open.** A pattern cannot be passed to a method, so this needs either a macro form or a
-predicate check on the value form, for example
-`then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }))`, reported as
-`Then step is a rollback` and showing the actual value when it fails.
+**Added:** `then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }))` and
+`.is_not(..)` (`CheckIs`, in the prelude). A pattern cannot be passed to a method, so the check
+takes a description and a predicate: it is reported as `Then step is a rollback`, and shows the
+actual value when it fails. A predicate written in many tests is still better as a custom check.
 
 ### 6. Pure functions have no action
 

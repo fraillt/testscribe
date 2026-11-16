@@ -39,9 +39,10 @@ impl<'a, T> VerifyValue<'a, T> {
 /// [`reporter`](VerifyValueExposed::reporter).
 ///
 /// Equality ([`eq`](crate::report::basic::CheckEq)), containment
-/// ([`contains`](crate::report::basic::CheckContains)) and emptiness
-/// ([`is_empty`](crate::report::basic::CheckEmpty)) already ship as built-in checks; a
-/// custom check is for something they don't express. For example, a `sorted_ascending` check
+/// ([`contains`](crate::report::basic::CheckContains)), emptiness
+/// ([`is_empty`](crate::report::basic::CheckEmpty)) and predicates
+/// ([`is`](crate::report::basic::CheckIs)) already ship as built-in checks; a custom check is
+/// for something they don't express, or express too often. For example, a `sorted_ascending` check
 /// for `Vec<T>`, usable as `then!(list).sorted_ascending()`:
 ///
 /// ```

@@ -217,6 +217,66 @@ where
     }
 }
 
+/// Predicate checks for [`VerifyValue`], for what the value is rather than what it equals:
+/// `then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }))`.
+///
+/// Made for enum variants with payloads, where a pattern says what is meant and comparing
+/// would need the whole payload. The description completes the sentence `<name> is ...`, and
+/// the actual value is shown when the check fails.
+// These are checks, not questions: like every check they use up the value they report on.
+#[allow(clippy::wrong_self_convention)]
+pub trait CheckIs<T> {
+    /// Checks that `predicate` holds for the value; reports `<name> is <description>`.
+    ///
+    /// The check fails if the predicate returns `false` or panics (panics are caught).
+    fn is(self, description: &str, predicate: impl FnOnce(&T) -> bool);
+
+    /// Checks that `predicate` does not hold for the value; reports
+    /// `<name> is not <description>`.
+    ///
+    /// The check fails if the predicate returns `true` or panics (panics are caught).
+    fn is_not(self, description: &str, predicate: impl FnOnce(&T) -> bool);
+}
+
+impl<T> CheckIs<T> for VerifyValue<'_, T>
+where
+    T: Debug,
+{
+    fn is(self, description: &str, predicate: impl FnOnce(&T) -> bool) {
+        let this = VerifyValueExposed::new(self);
+        let outcome = get_predicate_outcome(this.actual_value, predicate, true);
+        this.reporter
+            .set_outcome(format!("{} is {}", this.var_name, description), outcome);
+    }
+
+    fn is_not(self, description: &str, predicate: impl FnOnce(&T) -> bool) {
+        let this = VerifyValueExposed::new(self);
+        let outcome = get_predicate_outcome(this.actual_value, predicate, false);
+        this.reporter
+            .set_outcome(format!("{} is not {}", this.var_name, description), outcome);
+    }
+}
+
+fn get_predicate_outcome<T: Debug>(
+    actual_value: &T,
+    predicate: impl FnOnce(&T) -> bool,
+    expected: bool,
+) -> VerifyOutcome {
+    match catch_unwind(AssertUnwindSafe(|| predicate(actual_value))) {
+        Ok(holds) if holds == expected => VerifyOutcome::Success,
+        Ok(_) => VerifyOutcome::Failure {
+            details: format!("actual: {actual_value:?}"),
+        },
+        Err(err) => VerifyOutcome::Failure {
+            details: format!(
+                "panic: {}",
+                extract_string_from_panic_payload(err.as_ref())
+                    .unwrap_or_else(|| "no info".to_owned())
+            ),
+        },
+    }
+}
+
 /// Closure check for [`VerifyStatement`]: `then!("payment is accepted").run(|| ...)`.
 pub trait CheckRun {
     /// Runs the closure and reports the statement as the check outcome.

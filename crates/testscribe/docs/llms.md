@@ -69,7 +69,9 @@ It is intentionally practical: good patterns, anti-patterns.
 	- Use: `then!("statement").run(...)` or `run_async(...)`
 4. Do you verify the same condition over many items?
 	- Use: `then!("statement").params(list).run(...)`
-5. Is built-in output too generic (for example boolean `is_err`) and domain wording matters?
+5. Do you verify what a value is (for example which enum variant), not what it equals?
+	- Use: `then!(variable).is("description", |value| matches!(value, ...))` or `is_not(...)`
+6. Is built-in output too generic (for example boolean `is_err`) and domain wording matters?
 	- Use: a project-local custom check trait on `VerifyValue<'_, T>`.
 
 #### More elaborate examples
@@ -141,7 +143,28 @@ When to use:
 Common misuse:
 - Parameter tables for one-off checks (use normal value assertion instead).
 
-#### 5) Project-local custom checks
+#### 5) Verify what a value is (predicate)
+
+Syntax:
+- `then!(variable).is("description", |value| { ... })`
+- `then!(variable).is_not("description", |value| { ... })`
+
+Example:
+- `then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }));`
+
+Behavior:
+- Output reads `Then step is a rollback` (`is not` for `is_not`); the description completes the sentence.
+- The check fails if the predicate returns `false` (`true` for `is_not`) or panics; the actual value is shown.
+
+When to use:
+- Enum variants with payloads, or any property a pattern or a short predicate expresses.
+- Instead of `then!(matches!(..) => alias).eq(true)` and instead of `then!("...").run(|| matches!(..))`.
+
+Common misuse:
+- A description that does not match the predicate.
+- The same predicate repeated across many tests (write a custom check instead).
+
+#### 6) Project-local custom checks
 
 Pattern:
 - Implement a trait for `VerifyValue<'_, T>` in test code.

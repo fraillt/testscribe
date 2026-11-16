@@ -30,7 +30,14 @@ It's hard and unnatural to read this in code and in test output.
 
 ### Good:
 
-If you assert this way in only a few places, you can convert it to a string and assert on that instead.
+Say what the value is with the built-in `is` check. The description completes the sentence in the
+test output, and the actual value is shown when the check fails.
+```
+then!(err).is("an invalid state error", |err| matches!(err, DomainError::InvalidState(_)));
+```
+Test outcome shows `Then err is an invalid state error`.
+
+Or convert it to a string and assert on that instead.
 ```
 then!(err.to_string() => insert_error).contains("ticket already closed");
 ```
@@ -83,7 +90,8 @@ Hard to write and hard to read.
 
 ### Good:
 
-If this is a common theme in many tests, consider implementing [custom checks](../tests/custom_checks.rs).
+For one or two uses the built-in `is` check is enough (see section 2). If this is a common theme
+in many tests, consider implementing [custom checks](../tests/custom_checks.rs).
 This not only makes code easier to write, but also makes test output exactly what you want it to be.
 ```
 then!(insert_error).has_domain_error(DOMAIN_ERR_INVALID_STATE)

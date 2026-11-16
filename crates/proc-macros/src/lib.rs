@@ -172,6 +172,8 @@ use crate::derive_param_display::expand_param_display;
 /// `testscribe::report::basic`, which must be imported:
 ///
 /// - `CheckEq` — `then!(sum).eq(3)`, `then!(sum).ne(5)`
+/// - `CheckIs` — `then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }))`,
+///   and `is_not`; the description completes the sentence `step is ...`
 /// - `CheckRun` — `then!("payment is accepted").run(|| ...)`; the check fails if the closure
 ///   panics, returns `false`, or returns an `Err`
 /// - `CheckAsyncRun` — `then!("...").run_async(async || ...).await` (async tests only)

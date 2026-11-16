@@ -1,10 +1,11 @@
 // This file is the reference for the built-in check forms, so it imports each check trait
 // explicitly to show which trait powers which `then!` form: `CheckEq` -> `.eq`/`.ne`,
 // `CheckContains` -> `.contains`, `CheckEmpty` -> `.is_empty`/`.is_not_empty`,
-// `CheckRun` -> `.run`, `CheckAsyncRun` -> `.run_async`, `CheckParams` -> `.params`. Real test suites don't list these — `use testscribe::prelude::*;`
+// `CheckIs` -> `.is`/`.is_not`, `CheckRun` -> `.run`, `CheckAsyncRun` -> `.run_async`,
+// `CheckParams` -> `.params`. Real test suites don't list these — `use testscribe::prelude::*;`
 // re-exports all of them at once (see basic_tests_tree.rs).
 use testscribe::report::basic::{
-    CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckParams, CheckRun,
+    CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckIs, CheckParams, CheckRun,
 };
 use testscribe::{ParamDisplay, testscribe};
 
@@ -100,6 +101,36 @@ fn emptiness_checks() {
 
     let open_orders = vec![17, 18];
     then!(open_orders).is_not_empty();
+}
+
+#[derive(Debug)]
+enum Step {
+    Applied { block: u64 },
+    RolledBack { block: u64 },
+}
+
+/// The built-in predicate checks say what a value is, where comparing it would need more than
+/// the test is about, such as which variant of an enum it is. The description completes the
+/// sentence, and a failed check shows the actual value.
+/// Running this test will give this outcome:
+/// ```text
+/// | 0.012ms|Given predicate checks
+/// |       -|  Then last_step is a rollback of block 102
+/// |       -|  And first_step is not a rollback
+/// |       -|  And first_step is applied to an even block
+/// ```
+#[testscribe(standalone)]
+fn predicate_checks() {
+    let first_step = Step::Applied { block: 100 };
+    let last_step = Step::RolledBack { block: 102 };
+    then!(last_step).is("a rollback of block 102", |step| {
+        matches!(step, Step::RolledBack { block: 102 })
+    });
+    then!(first_step).is_not("a rollback", |step| matches!(step, Step::RolledBack { .. }));
+    then!(first_step).is(
+        "applied to an even block",
+        |step| matches!(step, Step::Applied { block } if block % 2 == 0),
+    );
 }
 
 /// Running this test will give this outcome:

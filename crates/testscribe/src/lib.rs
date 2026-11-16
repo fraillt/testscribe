@@ -41,8 +41,8 @@
 //! - [`test_args`] — test function arguments: [`Given`](test_args::Given) (parent state),
 //!   [`Env`](test_args::Env) (infrastructure environment), [`Param`](test_args::Param)
 //!   (parameterized tests)
-//! - [`report`] — built-in checks (`eq`, `ne`, `contains`, `run`, `run_async`, `params`) and
-//!   support for custom domain-specific checks
+//! - [`report`] — built-in checks (`eq`, `ne`, `contains`, `is_empty`, `is`, `run`, `run_async`,
+//!   `params`) and support for custom domain-specific checks
 //! - [`ParamDisplay`] derive — renders parameters as table rows in test output
 //! - [`clone_async`] — cloning test state/environments to avoid re-running parent tests
 //!
@@ -87,7 +87,8 @@ pub use testscribe_core::clone_async::CloneAsync;
 /// [`Environment`](test_args::Environment) trait), every built-in check so the right extension
 /// trait is always in scope ([`eq`/`ne`](report::basic::CheckEq),
 /// [`contains`](report::basic::CheckContains),
-/// [`is_empty`/`is_not_empty`](report::basic::CheckEmpty), [`run`](report::basic::CheckRun),
+/// [`is_empty`/`is_not_empty`](report::basic::CheckEmpty),
+/// [`is`/`is_not`](report::basic::CheckIs), [`run`](report::basic::CheckRun),
 /// [`run_async`](report::basic::CheckAsyncRun), [`params`](report::basic::CheckParams)), the
 /// [`CloneAsync`] and [`ParamDisplay`] derives, and the full toolkit for writing custom checks
 /// ([`VerifyValue`](report::VerifyValue) / [`VerifyValueExposed`](report::VerifyValueExposed) and
@@ -105,7 +106,7 @@ pub mod prelude {
 
     // Built-in checks behind the `then!` macro — one extension trait per check form.
     pub use crate::report::basic::{
-        CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckParams, CheckRun,
+        CheckAsyncRun, CheckContains, CheckEmpty, CheckEq, CheckIs, CheckParams, CheckRun,
     };
 
     // Building blocks for writing project-local custom checks, for both the value form

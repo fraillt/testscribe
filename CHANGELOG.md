@@ -17,6 +17,10 @@ This changelog covers all crates in the workspace
 
 - built-in checks `is_empty` and `is_not_empty` for collections and texts:
   `then!(sent_emails).is_empty()` reports `Then sent_emails is empty`.
+- built-in predicate checks `is` and `is_not`, for what a value is rather than what it equals,
+  such as the variant of an enum with a payload:
+  `then!(step).is("a rollback", |step| matches!(step, Step::RolledBack { .. }))` reports
+  `Then step is a rollback`, and shows the actual value when it fails.
 
 ### Fixed
 
