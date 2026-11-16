@@ -1,0 +1,21 @@
+[package]
+description = "The testscribe frontend server: test binaries report to it, the UI reads from it"
+edition.workspace = true
+license.workspace = true
+name = "testscribe-frontend-server"
+publish.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "testscribe-frontend"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+futures = "0.3"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync"] }
+tower-http = { version = "0.6", features = ["fs"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.28"

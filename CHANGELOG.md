@@ -50,6 +50,12 @@ This changelog covers all crates in the workspace
 
 ### Changed
 
+- the experimental `detached` feature is no longer a runner of its own. The tests run under
+  `cargo test` as always, and with `TESTSCRIBE_FRONTEND=<host:port>` set every standalone tree
+  reports to a frontend: the test binary sends its trees, each tree asks what to run, and every
+  test is reported as it runs. Without the variable, or with nothing listening, nothing changes.
+  The former `driver` and `runtime` modules are gone. A first frontend, a server with a web UI,
+  is in `frontend/`.
 - a variable name or alias is printed with spaces for its underscores, the way a test name is:
   `then!(keyboard_stock).eq(5)` reports `Then keyboard stock is equal to 5`, where it was
   `Then keyboard_stock is equal to 5`. `VerifyValueExposed::var_name` holds the printed form.

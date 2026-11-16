@@ -1,0 +1,42 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --border: #dfe3e8;
+  --hover: #eef1f5;
+  --text: #1c2330;
+  --muted: #7b8696;
+  --keyword: #9a6700;
+  --ok: #1a7f37;
+  --bad: #cf222e;
+  --accent: #0969da;
+  --mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--bg);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218;
+    --panel: #161b22;
+    --border: #2a313c;
+    --hover: #1f2630;
+    --text: #dce3ec;
+    --muted: #7d8896;
+    --keyword: #d29922;
+    --ok: #3fb950;
+    --bad: #f85149;
+    --accent: #58a6ff;
+  }
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+#app {
+  display: flex;
+}

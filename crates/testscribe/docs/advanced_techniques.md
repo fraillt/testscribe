@@ -169,7 +169,7 @@ You can use internals to build your own runner and define how tests are selected
 
 **Example:**
 When you write `#[testscribe(standalone)]` you're already using `testscribe-standalone` crate, but this crate exposes more functions so you could write your own test harness.
-Lastly there's experimental support for `detached` test runner (`testscribe-detached` crate), meaning that test execution is controlled by external tools.
+Lastly there's experimental support for a remote frontend (the `detached` feature, `testscribe-detached` crate): with `TESTSCRIBE_FRONTEND` set, standalone trees report to a frontend that shows the run, and may choose what runs. See [frontend](https://github.com/fraillt/testscribe/blob/main/frontend/README.md).
 
 References:
 - [custom_test_runner.rs](../tests/custom_test_runner.rs)

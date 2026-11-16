@@ -52,7 +52,8 @@
 //!   runner via `#[testscribe(standalone)]`, and exposes the [`standalone`] module with
 //!   utilities for building custom runners (e.g. `standalone::run_all_sync` together with
 //!   `harness = false`).
-//! - `detached` — experimental remote-controlled test runner, exposed as the `detached`
+//! - `detached` — experimental: with the environment variable `TESTSCRIBE_FRONTEND` set,
+//!   standalone trees report to a remote frontend that shows the run. Exposed as the `detached`
 //!   module.
 //!
 //! # Learn more
@@ -124,10 +125,22 @@ pub mod standalone {
     pub use testscribe_standalone::*;
 }
 
-/// Experimental remote-controlled test runner.
+/// Experimental connection to a remote frontend that shows the run: with the environment
+/// variable `TESTSCRIBE_FRONTEND` set, standalone trees report to it.
 #[cfg(feature = "detached")]
 pub mod detached {
     pub use testscribe_detached::*;
+}
+
+/// What the wrapper of a `standalone` test calls: the standalone runner, or, with the
+/// `detached` feature, the one that also reports to a frontend when one is named.
+#[doc(hidden)]
+#[cfg(feature = "standalone")]
+pub mod __standalone {
+    #[cfg(feature = "detached")]
+    pub use testscribe_detached::{run_async, run_sync};
+    #[cfg(not(feature = "detached"))]
+    pub use testscribe_standalone::{run_async, run_sync};
 }
 
 #[doc(hidden)]

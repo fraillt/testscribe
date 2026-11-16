@@ -1,5 +1,7 @@
 [workspace]
 members = ["crates/*", "examples/*"]
+# The frontend is a workspace of its own: a server, a UI and a desktop shell.
+exclude = ["frontend"]
 resolver = "3"
 
 [workspace.package]

@@ -114,7 +114,8 @@ whenever tests are written in a project that depends on testscribe:
 
 - `standalone` *(enabled by default)* — run test trees through the standard test runner via
   `#[testscribe(standalone)]`; also provides utilities for building custom runners.
-- `detached` — experimental remote-controlled test runner.
+- `detached` — experimental: with `TESTSCRIBE_FRONTEND` set, standalone trees report to a remote
+  frontend that shows the run.
 
 ## License
 

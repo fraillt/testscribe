@@ -34,14 +34,14 @@ pub mod panic_hook;
 mod filter;
 mod runner;
 
-use std::{collections::HashSet, io::Write, sync::Mutex};
+use std::{collections::HashSet, future::Future, io::Write, sync::Mutex, time::Duration};
 
 use futures::executor::block_on;
 
 use testscribe_core::{
     processor::{
         filter::{Filter, FilterByPath, NoFilter},
-        logger::TestRunInfo,
+        logger::{Logger, TestRunInfo, TestStatusUpdate},
     },
     test_case::{FqFnName, TestCase},
     tests_tree::{
@@ -116,11 +116,92 @@ pub fn run_sync(
     block_on(run_async(test_cases, module_path, test_name))
 }
 
+/// Which tests of a tree to run.
+pub enum Selection {
+    /// The whole tree.
+    All,
+    /// The tests on these paths, for every path a list of names from the root down.
+    Paths(Vec<Vec<String>>),
+    /// Nothing.
+    None,
+}
+
+/// Something that follows a standalone tree from outside, such as a remote frontend: it may
+/// choose which tests run, sees every status update, and is told when the tree is done.
+pub trait TreeObserver {
+    /// Asked once, before the tree runs. A selection made on the command line, with
+    /// `--exact` or [`ONLY_ENV_NAME`], comes first: then this is not asked.
+    fn select(&mut self, tree: &TestsTree) -> impl Future<Output = Selection>;
+
+    /// Every status update of the tree, before it is printed.
+    fn observe(&mut self, test: &'static TestCase, update: &TestStatusUpdate, elapsed: Duration);
+
+    /// The tree is done. Returns when the observer has passed everything on.
+    fn finished(&mut self, success: bool) -> impl Future<Output = ()>;
+}
+
+/// Nobody is watching.
+pub struct NoObserver;
+
+impl TreeObserver for NoObserver {
+    async fn select(&mut self, _tree: &TestsTree) -> Selection {
+        Selection::All
+    }
+
+    fn observe(&mut self, _: &'static TestCase, _: &TestStatusUpdate, _: Duration) {}
+
+    async fn finished(&mut self, _success: bool) {}
+}
+
+/// Shows every status update to an observer on its way to the printer.
+struct Observed<'a, O, P> {
+    observer: &'a mut O,
+    printer: &'a mut P,
+}
+
+impl<O: TreeObserver, P: Logger> Logger for Observed<'_, O, P> {
+    fn log(&mut self, test: &'static TestCase, update: TestStatusUpdate, elapsed: Duration) {
+        self.observer.observe(test, &update, elapsed);
+        self.printer.log(test, update, elapsed);
+    }
+}
+
+/// The filter for the tests of `tree` on the named paths.
+fn named_paths(tree: &TestsTree, named: &[Vec<String>]) -> FilterByPath {
+    let mut paths: Vec<HashSet<FqFnName<'static>>> = Vec::new();
+    let mut level = vec![(tree, 0)];
+    while let Some((node, depth)) = level.pop() {
+        let name = node.node.name;
+        let on_a_path = named.iter().any(|path| {
+            path.get(depth)
+                .is_some_and(|wanted| *wanted == name.to_string())
+        });
+        if on_a_path {
+            if paths.len() <= depth {
+                paths.resize_with(depth + 1, HashSet::new);
+            }
+            paths[depth].insert(name);
+            level.extend(node.childs.iter().map(|child| (child, depth + 1)));
+        }
+    }
+    FilterByPath { paths }
+}
+
 /// This function signature is used by proc-macros to run `standalone` tests asynchronously.
 pub async fn run_async(
     test_cases: &'static [TestCase],
     module_path: &'static str,
     test_name: &'static str,
+) -> Result<(), String> {
+    run_observed(test_cases, module_path, test_name, &mut NoObserver).await
+}
+
+/// Runs a standalone tree the way [`run_async`] does, in front of an observer.
+pub async fn run_observed<O: TreeObserver>(
+    test_cases: &'static [TestCase],
+    module_path: &'static str,
+    test_name: &'static str,
+    observer: &mut O,
 ) -> Result<(), String> {
     let mut trees = create_test_trees(test_cases);
     let tree_name = &FqFnName::new(module_path, test_name);
@@ -147,19 +228,37 @@ pub async fn run_async(
     } else {
         None
     };
+    let paths = match paths {
+        Some(paths) => Some(paths),
+        None => match observer.select(&tree).await {
+            Selection::All => None,
+            Selection::Paths(named) => Some(named_paths(&tree, &named)),
+            Selection::None => {
+                observer.finished(true).await;
+                return Ok(());
+            }
+        },
+    };
     let filter: &dyn Filter = match &paths {
         Some(paths) => paths,
         None => &NoFilter,
     };
 
     let mut printer = TestFormatter::new(output);
-    let summary = run_test_tree(tree, filter, &mut printer, args.exact).await;
+    let summary = {
+        let mut observed = Observed {
+            observer: &mut *observer,
+            printer: &mut printer,
+        };
+        run_test_tree(tree, filter, &mut observed, args.exact).await
+    };
     printer.print_failures(&summary.failed);
     printer.print_panics(&summary.panics);
     if !live {
         // In one piece: other trees print at the same time.
         print!("{}", String::from_utf8(vecout).unwrap());
     }
+    observer.finished(summary.is_success()).await;
     if summary.is_success() {
         Ok(())
     } else {

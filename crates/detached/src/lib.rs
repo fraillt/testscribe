@@ -1,20 +1,107 @@
-//! An **experimental** remote-controlled test runner for the
-//! [testscribe](https://docs.rs/testscribe) test framework.
+//! An **experimental** connection from [testscribe](https://docs.rs/testscribe) tests to a
+//! remote frontend that shows the run, and may choose what runs.
 //!
-//! Instead of running a test tree under the local `cargo test` harness, this runner lets the tree
-//! be driven over a connection by an external driver. This enables scenarios such as inspecting or
-//! stepping through a tree from a separate process.
+//! The tests still run under `cargo test`. When the environment variable
+//! [`FRONTEND_ENV_NAME`] names a frontend, the test binary connects to it, sends its test
+//! trees, and every standalone tree asks the frontend what to run before it starts and reports
+//! each test as it goes. The terminal output stays what it is.
+//!
+//! ```text
+//! TESTSCRIBE_FRONTEND=127.0.0.1:7357 cargo test
+//! ```
+//!
+//! Without the variable, or when nothing answers at that address, the tests run as usual.
 //!
 //! # Stability
 //!
-//! ⚠️ This crate is experimental and unstable; its API may change or be removed in any release.
-//! Most users want the default [`testscribe-standalone`](https://docs.rs/testscribe-standalone)
-//! runner instead. Enable this one through the main crate's `detached` feature.
-//!
-//! The [`runtime`] module hosts the test tree (backend) side and [`driver`] hosts the controlling
-//! (frontend) side.
+//! ⚠️ This crate is experimental and unstable; its API and its [`protocol`] may change in any
+//! release. Enable it through the `detached` feature of the main crate.
 
-#[doc(hidden)]
-pub mod driver;
-#[doc(hidden)]
-pub mod runtime;
+mod connection;
+pub mod protocol;
+
+use std::time::Duration;
+
+use futures::channel::oneshot;
+use futures::executor::block_on;
+use testscribe_core::processor::logger::TestStatusUpdate;
+use testscribe_core::test_case::{FqFnName, TestCase};
+use testscribe_core::tests_tree::TestsTree;
+use testscribe_standalone::{Selection, TreeObserver, run_observed};
+
+use crate::connection::{Frontend, Outgoing};
+use crate::protocol::ToFrontend;
+
+/// Names the frontend to connect to: `host:port`, or a whole `ws://` url.
+pub const FRONTEND_ENV_NAME: &str = "TESTSCRIBE_FRONTEND";
+
+/// Used by the `#[testscribe]` macro to run a sync `standalone` test.
+pub fn run_sync(
+    test_cases: &'static [TestCase],
+    module_path: &'static str,
+    test_name: &'static str,
+) -> Result<(), String> {
+    block_on(run_async(test_cases, module_path, test_name))
+}
+
+/// Used by the `#[testscribe]` macro to run an async `standalone` test.
+pub async fn run_async(
+    test_cases: &'static [TestCase],
+    module_path: &'static str,
+    test_name: &'static str,
+) -> Result<(), String> {
+    match connection::frontend(test_cases) {
+        Some(frontend) => {
+            let mut observer = FrontendObserver {
+                frontend,
+                root: FqFnName::new(module_path, test_name).to_string(),
+            };
+            run_observed(test_cases, module_path, test_name, &mut observer).await
+        }
+        None => testscribe_standalone::run_async(test_cases, module_path, test_name).await,
+    }
+}
+
+/// Reports one standalone tree to the frontend.
+struct FrontendObserver {
+    frontend: &'static Frontend,
+    root: String,
+}
+
+impl TreeObserver for FrontendObserver {
+    async fn select(&mut self, _tree: &TestsTree) -> Selection {
+        let (reply, selection) = oneshot::channel();
+        self.frontend.send(Outgoing::Ready {
+            root: self.root.clone(),
+            reply,
+        });
+        // The connection answers for a frontend that does not: with everything.
+        selection.await.unwrap_or(Selection::All)
+    }
+
+    fn observe(&mut self, test: &'static TestCase, update: &TestStatusUpdate, elapsed: Duration) {
+        self.frontend.send(Outgoing::Message(
+            ToFrontend::Test {
+                root: &self.root,
+                test: test.name,
+                update,
+                elapsed_us: elapsed.as_micros() as u64,
+            }
+            .to_json(),
+        ));
+    }
+
+    async fn finished(&mut self, success: bool) {
+        self.frontend.send(Outgoing::Message(
+            ToFrontend::TreeFinished {
+                root: &self.root,
+                success,
+            }
+            .to_json(),
+        ));
+        // The process may end right after its last test: nothing may still be on its way.
+        let (done, flushed) = oneshot::channel();
+        self.frontend.send(Outgoing::Flush(done));
+        let _ = flushed.await;
+    }
+}

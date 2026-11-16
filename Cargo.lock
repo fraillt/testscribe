@@ -2437,11 +2437,11 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "testscribe",
  "testscribe-core",
  "testscribe-standalone",
  "tokio",
  "tokio-tungstenite",
- "tungstenite",
 ]
 
 [[package]]

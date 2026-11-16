@@ -71,7 +71,7 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
                 #(#cfg_attrs)*
                 #(#harness)*
                 async fn #visible_ident() -> Result<(), String> {
-                    testscribe::standalone::run_async(&testscribe::CASES, module_path!(), #test_struct_name).await
+                    testscribe::__standalone::run_async(&testscribe::CASES, module_path!(), #test_struct_name).await
                 }
             }
         } else {
@@ -79,7 +79,7 @@ pub fn expand_test(config: TestConfig, test_fn: TestFn) -> TokenStream {
                 #(#cfg_attrs)*
                 #(#harness)*
                 fn #visible_ident() -> Result<(), String> {
-                    testscribe::standalone::run_sync(&testscribe::CASES, module_path!(), #test_struct_name)
+                    testscribe::__standalone::run_sync(&testscribe::CASES, module_path!(), #test_struct_name)
                 }
             }
         })

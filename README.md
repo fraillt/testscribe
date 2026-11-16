@@ -77,7 +77,8 @@ and the full user documentation, or explore by example:
 | [crates/core](./crates/core/) | Test tree structure, execution logic and assertion/reporting types |
 | [crates/proc-macros](./crates/proc-macros/) | The `#[testscribe]` attribute and `ParamDisplay` derive |
 | [crates/standalone](./crates/standalone/) | Default test runner, integrates with `cargo test`; also building blocks for custom runners |
-| [crates/detached](./crates/detached/) | Experimental remote-controlled test runner |
+| [crates/detached](./crates/detached/) | Experimental connection from the tests to a remote frontend |
+| [frontend/](./frontend/) | Experimental frontend that shows test runs: a server and a web UI (not published) |
 | [examples/](./examples/) | Example projects (not published) |
 
 ## For AI Agents

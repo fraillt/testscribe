@@ -1,0 +1,12 @@
+[workspace]
+members = ["server", "ui/src-tauri"]
+# The desktop app needs the system libraries of a webview, so it is built when asked for:
+# `cargo build -p testscribe-frontend-desktop`, or `npm run tauri dev` in `ui`.
+default-members = ["server"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+version = "0.1.0"
